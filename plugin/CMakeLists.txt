@@ -3,6 +3,7 @@
 juce_add_plugin(HS2Port
     VERSION 0.1.0
     COMPANY_NAME "HS2 Port"
+    BUNDLE_ID com.hs2port.HS2Port
     PLUGIN_MANUFACTURER_CODE Hs2p
     PLUGIN_CODE Hs2P
     FORMATS VST3 AU Standalone
