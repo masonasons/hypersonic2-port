@@ -1040,3 +1040,10 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   window opened too late. Now every new patch put in place gets its channel's controllers of the last 3 s again
   (ccLast_ / ccTime_, independent of when the program change arrived). The file sends PC, CC7, CC91 (and CC93 = 0 on
   channels 5 and 9: send 3 off) at tick 0 on every channel. Test: --pc-param with --init-cc 7=40,10=20,93=0.
+- **Portamento Time (CC 5) had no effect (user: a lead's portamento time wrong in the MIDI file).** CC 5 -> patch
+  0x94 (CC map); the patch setter case 0x94 (@10012ea5) stores the slot 11 (Glide Time) macro weight part+0x8fc =
+  2v - 1 (v*0.5 - 1 with part+0x114c) and re-sets the Receive CC elements' Glide Time. The port re-set the glide but
+  `computeMacroWeights` only had slots 0..9 (0x7e..0x87), so slot 11 stayed 0. Fixed (element.cpp); no factory patch
+  stores 0x94 != 0.5, so only CC 5 changes anything. combi_oracle vs hs2render on 35/10 with CC5 alone, CC65 + CC5,
+  CC126 + CC65 + CC5 and the file's full lead set-up (CC65, CC126, CC5 = 86 / 0, RPN 0 = 2, CC84): all identical
+  (were 2.5..3 dB apart). Slots 10 and 12..15 are only ever 0 in the original (reset writes only).

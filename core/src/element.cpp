@@ -152,6 +152,10 @@ std::array<float, 16> computeMacros(const ParamArray& pp) {
 std::array<float, 16> computeMacroWeights(const ParamArray& pp) {
     std::array<float, 16> w{};
     for (int k = 0; k < 10; ++k) w[k] = float(double(pp[0x7e + k] + pp[0x7e + k]) - 1.0);
+    // FIX: slot 11 (Glide Time, element 0x4e) has its own setter case: 0x94 (MIDI CC 5, Portamento Time) stores
+    // part+0x8fc = 2v - 1 (@10012ea5; v*0.5 - 1 with part+0x114c, never in this port). Every factory patch stores 0.5
+    // (weight 0), so only CC 5 moves it. Slots 10, 12..15 are only ever 0.
+    w[11] = float(double(pp[0x94] + pp[0x94]) - 1.0);
     return w;
 }
 
