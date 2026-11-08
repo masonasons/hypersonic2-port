@@ -17,3 +17,5 @@ docs/engine/element_setter.c
 *.pyc
 .vs/
 .vscode/
+# Distribution packages (tools/dist)
+/dist/

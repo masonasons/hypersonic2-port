@@ -39,7 +39,16 @@ Or with Ninja instead of Xcode: `cmake -S . -B build_plugin -G Ninja -DCMAKE_BUI
 
 Results are in `build_plugin/plugin/HS2Port_artefacts/Release/` (`VST3/HS2 Port.vst3`, `AU/HS2 Port.component`, `Standalone/HS2 Port.app`). To use them, copy the VST3 to `~/Library/Audio/Plug-Ins/VST3` and the AU to `~/Library/Audio/Plug-Ins/Components`. The plugin looks for the content in `~/Hypersonic 2 Content`; any other folder can be chosen in Settings.
 
-Not built or tested on a Mac yet. The engine needs `-ffp-contract=off`, which `core/CMakeLists.txt` sets for Clang. It was checked under MSVC, where `long double` is 64-bit as on Apple Silicon, and matches the original there as well.
+Built on Apple Silicon with Xcode 27; the AU passes `auval`. The engine needs `-ffp-contract=off`, which `core/CMakeLists.txt` sets for Clang. It was checked under MSVC, where `long double` is 64-bit as on Apple Silicon, and matches the original there as well.
+
+### Distribution packages
+
+`tools/dist/` builds release zips into `dist/`:
+
+- **Mac:** `tools/dist/dist-mac.sh` makes `dist/HS2-Port-<version>-Mac.zip` with the VST3, AU and Standalone app, universal (Apple Silicon and Intel, macOS 12 or later). It signs with the first "Developer ID Application" identity in the keychain (or `HS2_SIGN_ID`), with the hardened runtime. Set `HS2_NOTARY_PROFILE` to a `notarytool` keychain profile to notarize and staple; without it, other Macs show a Gatekeeper warning.
+- **Windows:** `powershell -ExecutionPolicy Bypass -File tools\dist\dist-windows.ps1` makes `dist\HS2-Port-<version>-Windows.zip` with the VST3 and Standalone exe. It finds Visual Studio itself (no developer prompt needed). Set `HS2_SIGN_CERT` (a .pfx) and `HS2_SIGN_PASSWORD` to sign with signtool.
+
+The version comes from `VERSION` in `plugin/CMakeLists.txt`.
 
 ## Content
 
