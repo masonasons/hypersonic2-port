@@ -255,6 +255,7 @@ private:
     std::atomic<int> pendingProgram_{-1};
     std::atomic<int> bankChannel_{0};                  // MIDI channel (0-based) of the latest bank select
     std::array<std::atomic<int>, 16> bankSelect_{};    // per channel: CC0 * 128 + CC32 as last received
+    std::array<bool, 16> sawBankLsb_{};                // audio thread: a CC32 came on this channel (else CC0 = bank)
 
     // Loader state.
     std::unique_ptr<LoaderThread> loader_;

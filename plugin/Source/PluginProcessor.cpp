@@ -828,13 +828,24 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
         hs2::MidiEvent e;
         e.offset = juce::jlimit(0, frames - 1, meta.samplePosition);
         for (int i = 0; i < std::min(meta.numBytes, 3); ++i) e.data[i] = d[i];
-        events_.push_back(e);
         if ((d[0] & 0xf0) == 0xb0 && meta.numBytes >= 3 && (d[1] == 0 || d[1] == 32)) {  // bank select
             const int ch = d[0] & 0x0f;
+            if (d[1] == 32) sawBankLsb_[size_t(ch)] = true;
+            // Many senders put the bank number on CC0 alone. Until a channel has seen a CC32, a CC0 value is the
+            // bank: it goes to the engine as CC0 = 0 + CC32 = value (the original's own scheme, bank = CC0*128+CC32).
+            if (d[1] == 0 && !sawBankLsb_[size_t(ch)] && events_.size() + 1 < size_t(kEventCapacity)) {
+                hs2::MidiEvent msb = e;
+                msb.data[2] = 0;
+                events_.push_back(msb);
+                e.data[1] = 32;
+            }
             const int b = bankSelect_[size_t(ch)].load(std::memory_order_relaxed);
-            bankSelect_[size_t(ch)] = d[1] == 0 ? (d[2] & 0x7f) * 128 + (b & 0x7f) : (b & 0x3f80) + (d[2] & 0x7f);
+            const int v = e.data[2] & 0x7f;
+            if (d[1] != e.data[1]) bankSelect_[size_t(ch)] = v;  // CC0 taken as the bank
+            else bankSelect_[size_t(ch)] = d[1] == 0 ? v * 128 + (b & 0x7f) : (b & 0x3f80) + v;
             bankChannel_ = ch;
         }
+        events_.push_back(e);
     }
     // A VST3 program change (setCurrentProgram): a MIDI program change on the channel of the latest bank select,
     // after this block's MIDI (the bank select the host sent with it may be in this block).
