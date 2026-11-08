@@ -264,11 +264,13 @@ private:
     // Controllers that come with a program change (audio thread). The part's CC map sends CC7 / CC10 / CC91.. to the
     // part's own Level / Pan / sends, so they are lost when the new patch replaces the part a block or more later
     // (the original's loader runs even later, from the host's idle calls). A MIDI file sets volume, pan and sends
-    // at the moment of its program changes; so the controllers a channel gets from the block of its program change
-    // until the new patch is in place (at most kCcHoldSeconds) are sent again to the new patch.
-    static constexpr double kCcHoldSeconds = 2.0;
-    std::array<std::array<int8_t, 128>, 16> ccHold_{};  // last value per channel / CC in the hold window, -1 = none
-    std::array<int, 16> ccHoldLeft_{};                  // frames left of a channel's hold window (0 = no load pending)
+    // at the moment of its program changes, and a VST3 host delivers the program change later than the controllers
+    // (through the program list, on another thread). So when a new patch is put in place, the controllers its
+    // channel received in the last kCcRecentSeconds are sent to it again.
+    static constexpr double kCcRecentSeconds = 3.0;
+    std::array<std::array<int8_t, 128>, 16> ccLast_{};   // last value per channel / CC, -1 = none
+    std::array<std::array<int64_t, 128>, 16> ccTime_{};  // when it came (clock_)
+    int64_t clock_ = 0;                                  // frames processed (audio thread)
     std::atomic<int> bankChannel_{0};                  // MIDI channel (0-based) of the latest bank select
     std::array<std::atomic<int>, 16> bankSelect_{};    // per channel: CC0 * 128 + CC32 as last received
     std::array<bool, 16> sawBankLsb_{};                // audio thread: a CC32 came on this channel (else CC0 = bank)

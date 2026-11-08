@@ -230,7 +230,7 @@ private:
 HS2Processor::HS2Processor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
     for (auto& p : pendingChannelProgram_) p = -1;
-    for (auto& c : ccHold_) c.fill(-1);
+    for (auto& c : ccLast_) c.fill(-1);
     // Host parameters: master volume, then per part Mute, Level, Pan, Sends 1-4, Hyperknobs 1-6. Defaults are the
     // engine's own (FUN_1008bad0); the loaded patches set the real values.
     const double masterScale = (8.0 - 2.2 * 0.33) / 4.0;  // master gain = scale * v^2 (hype 0.33, the default)
@@ -828,11 +828,13 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     // MIDI: every channel goes to the engine, which routes it to its part (part N = channel N) and handles bank
     // select and program changes itself (they come back as load requests below).
     events_.clear();
-    // First the controllers held for a channel whose new patch has just been put in place (see ccHold_).
+    // First the recent controllers of a channel whose new patch has just been put in place (see ccLast_).
+    const int64_t recent = int64_t((getSampleRate() > 0 ? getSampleRate() : 44100.0) * kCcRecentSeconds);
     for (int ch = 0; ch < 16; ++ch) {
-        if (!(replay >> ch & 1) || ccHoldLeft_[size_t(ch)] <= 0) continue;
+        if (!(replay >> ch & 1)) continue;
         for (int cc = 0; cc < 128; ++cc)
-            if (const int v = ccHold_[size_t(ch)][size_t(cc)]; v >= 0 && events_.size() < size_t(kEventCapacity)) {
+            if (const int v = ccLast_[size_t(ch)][size_t(cc)];
+                v >= 0 && clock_ - ccTime_[size_t(ch)][size_t(cc)] <= recent && events_.size() < size_t(kEventCapacity)) {
                 hs2::MidiEvent e;
                 e.offset = 0;
                 e.data[0] = uint8_t(0xb0 | ch);
@@ -840,8 +842,6 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
                 e.data[2] = uint8_t(v);
                 events_.push_back(e);
             }
-        ccHold_[size_t(ch)].fill(-1);
-        ccHoldLeft_[size_t(ch)] = 0;
     }
     for (const auto meta : midi) {
         const auto* d = meta.data;
@@ -850,11 +850,14 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
         hs2::MidiEvent e;
         e.offset = juce::jlimit(0, frames - 1, meta.samplePosition);
         for (int i = 0; i < std::min(meta.numBytes, 3); ++i) e.data[i] = d[i];
-        // Hold the controllers (not bank select, data entry / (N)RPN, channel mode messages) for a pending load.
+        // Remember the controllers for the next patch put in place (not bank select, data entry / (N)RPN, channel
+        // mode messages).
         if ((d[0] & 0xf0) == 0xb0 && meta.numBytes >= 3) {
             const int cc = d[1] & 0x7f;
-            if (cc != 0 && cc != 32 && cc != 6 && cc != 38 && !(cc >= 96 && cc <= 101) && cc < 120)
-                ccHold_[size_t(d[0] & 0x0f)][size_t(cc)] = int8_t(d[2] & 0x7f);
+            if (cc != 0 && cc != 32 && cc != 6 && cc != 38 && !(cc >= 96 && cc <= 101) && cc < 120) {
+                ccLast_[size_t(d[0] & 0x0f)][size_t(cc)] = int8_t(d[2] & 0x7f);
+                ccTime_[size_t(d[0] & 0x0f)][size_t(cc)] = clock_ + e.offset;
+            }
         }
         if ((d[0] & 0xf0) == 0xb0 && meta.numBytes >= 3 && (d[1] == 0 || d[1] == 32)) {  // bank select
             const int ch = d[0] & 0x0f;
@@ -935,21 +938,7 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
 
     // Program changes become loads on the loader thread.
     const auto reqs = eng.takeProgramRequests();
-    // Controller hold windows: a program change request opens one for its channel (a combi for all channels);
-    // channels without one keep only this block's controllers.
-    if (midiProgramChanges_.load()) {
-        const int hold = int(getSampleRate() > 0 ? getSampleRate() * kCcHoldSeconds : 88200.0);
-        for (const auto& r : reqs) {
-            if (r.bank >= 120)
-                ccHoldLeft_.fill(hold);
-            else if (r.channel >= 0 && r.channel < 16)
-                ccHoldLeft_[size_t(r.channel)] = hold;
-        }
-    }
-    for (int ch = 0; ch < 16; ++ch) {
-        if (ccHoldLeft_[size_t(ch)] > 0) ccHoldLeft_[size_t(ch)] = std::max(0, ccHoldLeft_[size_t(ch)] - frames);
-        if (ccHoldLeft_[size_t(ch)] <= 0) ccHold_[size_t(ch)].fill(-1);
-    }
+    clock_ += frames;
     if (!reqs.empty() && midiProgramChanges_.load()) {
         int s1, n1, s2, n2;
         midiFifo_.prepareToWrite(int(reqs.size()), s1, n1, s2, n2);

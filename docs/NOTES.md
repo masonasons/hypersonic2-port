@@ -1035,3 +1035,8 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   controllers a channel receives from the block of its program change request until the new patch is in place (at
   most 2 s; not CC 0/32, 6/38, 96..101, 120..127) and sends them again to the new patch (a combi: all channels).
   Test 7c (CC7/10/91 with the program change, identical to hs2render applying them after the load).
+  Second version (user: volume still not set, and the delay the file switches off with CC93 = 0 still there): in
+  REAPER the program change comes through the VST3 program list, after the block with the controllers, so the hold
+  window opened too late. Now every new patch put in place gets its channel's controllers of the last 3 s again
+  (ccLast_ / ccTime_, independent of when the program change arrived). The file sends PC, CC7, CC91 (and CC93 = 0 on
+  channels 5 and 9: send 3 off) at tick 0 on every channel. Test: --pc-param with --init-cc 7=40,10=20,93=0.

@@ -166,6 +166,13 @@ for b, p in [(15, 23), (39, 2)]:
     run([HOST, VST, '--bank', str(b), '--patch', str(p), '--init-cc', '7=40,10=20,91=100', '--notes', NOTES] + COMMON +
         ['--out', f(f'plug_initcc_{b}_{p}.wav')])
     compare(f'{b}/{p} with CC7/10/91 at the program change', f(f'plug_initcc_{b}_{p}.wav'), f(f'ref_initcc_{b}_{p}.wav'))
+# The same with the program change the VST3 way (it reaches the plugin after the controllers, as in REAPER).
+run([REN, '--part', '1:84:0', '--load-bank', '--skip', '64', '--events',
+     '@0:cc:7:40,@0:cc:10:20,@0:cc:93:0,@64:load:1:39:28,@64:cc:7:40,@64:cc:10:20,@64:cc:93:0',
+     '--notes', NOTES] + RO + COMMON + ['--host', '-1:120:0', '--block', '32', '--out', f('ref_initcc_pc.wav')])
+run([HOST, VST, '--pc-param', '--bank', '39', '--patch', '28', '--init-cc', '7=40,10=20,93=0', '--notes', NOTES] + COMMON +
+    ['--out', f('plug_initcc_pc.wav')])
+compare('39/28 with CC7/10/93 before a VST3 program change', f('plug_initcc_pc.wav'), f('ref_initcc_pc.wav'))
 
 # 8. Ring-out off and on through the state, on 39/2 "Soloing" (when off, its delay tail is cut as in the original).
 SOLO = '0:0.25:72:100'
