@@ -261,6 +261,14 @@ private:
     // VST3 program changes (setCurrentProgram -> audio thread, see getNumPrograms).
     std::atomic<int> pendingProgram_{-1};
     std::array<std::atomic<int>, 16> pendingChannelProgram_;  // per MIDI channel, -1 = none (patched JUCE)
+    // Controllers that come with a program change (audio thread). The part's CC map sends CC7 / CC10 / CC91.. to the
+    // part's own Level / Pan / sends, so they are lost when the new patch replaces the part a block or more later
+    // (the original's loader runs even later, from the host's idle calls). A MIDI file sets volume, pan and sends
+    // at the moment of its program changes; so the controllers a channel gets from the block of its program change
+    // until the new patch is in place (at most kCcHoldSeconds) are sent again to the new patch.
+    static constexpr double kCcHoldSeconds = 2.0;
+    std::array<std::array<int8_t, 128>, 16> ccHold_{};  // last value per channel / CC in the hold window, -1 = none
+    std::array<int, 16> ccHoldLeft_{};                  // frames left of a channel's hold window (0 = no load pending)
     std::atomic<int> bankChannel_{0};                  // MIDI channel (0-based) of the latest bank select
     std::array<std::atomic<int>, 16> bankSelect_{};    // per channel: CC0 * 128 + CC32 as last received
     std::array<bool, 16> sawBankLsb_{};                // audio thread: a CC32 came on this channel (else CC0 = bank)

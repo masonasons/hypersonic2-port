@@ -20,6 +20,8 @@
 // with per-channel program lists: bank select as MIDI on each channel in block 0, then each channel's program through
 // its own program change parameter ("MIDI Channel N Program", the patched JUCE) after block 0; the plugin adds them at
 // the end of block 1 and the patches start at block 2 (as --pc-param).
+// --init-cc "cc=value,...": controllers on channel C in block 0, right after the program change (as a MIDI file sends
+// volume, pan and sends together with its program change); the plugin applies them to the new patch.
 // --state-attr sets an attribute of the plugin's own state XML (e.g. ringOut=0) in the --state-in state before it is
 // restored (inside the host's VST3PluginState wrapper: IComponent, base64, then the plugin's copyXmlToBinary block).
 // The play head reports 120 bpm, stopped, position 0, 4/4 (as hs2render --host "-1:120:0").
@@ -186,6 +188,10 @@ int main(int argc, char* argv[]) {
         evs.push_back({0, juce::MidiMessage::controllerEvent(channel, 0, 0)});
         evs.push_back({0, juce::MidiMessage::controllerEvent(channel, 32, bank)});
         if (!pcParam) evs.push_back({0, juce::MidiMessage::programChange(channel, patch)});
+        for (const auto& tok : juce::StringArray::fromTokens(opt("--init-cc", {}), ",", {}))
+            if (tok.contains("="))
+                evs.push_back({0, juce::MidiMessage::controllerEvent(channel, tok.upToFirstOccurrenceOf("=", false, false).getIntValue(),
+                                                                     tok.fromFirstOccurrenceOf("=", false, false).getIntValue())});
     }
     for (const auto& n : notes) {
         evs.push_back({start + int((lead + n.t) * sr), juce::MidiMessage::noteOn(n.ch, n.pitch, juce::uint8(n.vel))});

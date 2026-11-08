@@ -1026,3 +1026,12 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   them at the end of the next block. Test: `hs2plughost --pc-channels` (5 channels at once, bit-identical). Verified
   that a fresh GitHub clone of JUCE 9.0.5 patches and configures (the Mac path). Still to check in REAPER with the
   user's file: whether REAPER uses getUnitByBus (VST3's documented way; Kontakt relies on it).
+- **Controllers sent with a program change were lost (user: the same MIDI file, "the controllers might be the
+  issue").** The engine handles CC7 / CC10 / CC91 exactly as the original (combi_oracle vs hs2render, identical): the
+  part's CC map (FUN_1000c830) sends CC7 -> patch 0x43 Level, CC10 -> 0x3c Pan, CC91..94 -> 0x3f..0x42 sends, all in
+  the part. A program change replaces the part a block or more later (the original's loader is even later: the
+  request is taken by the plugin's idle function 1008d290, a vtable entry, also the content streaming driver), so the
+  volume / pan / sends a MIDI file sends with its program changes went to the old part. The plugin now holds the
+  controllers a channel receives from the block of its program change request until the new patch is in place (at
+  most 2 s; not CC 0/32, 6/38, 96..101, 120..127) and sends them again to the new patch (a combi: all channels).
+  Test 7c (CC7/10/91 with the program change, identical to hs2render applying them after the load).

@@ -156,6 +156,17 @@ run([HOST, VST, '--pc-channels', ','.join(f'{c}:{b}:{p}' for c, b, p in MULTI), 
     ['--out', f('plug_multi.wav')])
 compare('5 channels at once, per-channel program lists', f('plug_multi.wav'), f('ref_multi.wav'))
 
+# 7c. Volume, pan and a send in the same block as the program change (a MIDI file's start): they go to the old part
+# at once (as any MIDI) and again to the new patch when it is in place.
+for b, p in [(15, 23), (39, 2)]:
+    run([REN, '--part', '1:84:0', '--load-bank', '--skip', '32', '--events',
+         f'@0:cc:7:40,@0:cc:10:20,@0:cc:91:100,@32:load:1:{b}:{p},@32:cc:7:40,@32:cc:10:20,@32:cc:91:100',
+         '--notes', NOTES] + RO + COMMON +
+        ['--host', '-1:120:0', '--block', '32', '--out', f(f'ref_initcc_{b}_{p}.wav')])
+    run([HOST, VST, '--bank', str(b), '--patch', str(p), '--init-cc', '7=40,10=20,91=100', '--notes', NOTES] + COMMON +
+        ['--out', f(f'plug_initcc_{b}_{p}.wav')])
+    compare(f'{b}/{p} with CC7/10/91 at the program change', f(f'plug_initcc_{b}_{p}.wav'), f(f'ref_initcc_{b}_{p}.wav'))
+
 # 8. Ring-out off and on through the state, on 39/2 "Soloing" (when off, its delay tail is cut as in the original).
 SOLO = '0:0.25:72:100'
 run([HOST, VST, '--bank', '39', '--patch', '2', '--notes', SOLO] + COMMON +
