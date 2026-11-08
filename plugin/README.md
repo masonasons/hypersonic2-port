@@ -45,7 +45,7 @@ Built on Apple Silicon with Xcode 27; the AU passes `auval`. The engine needs `-
 
 `tools/dist/` builds release zips into `dist/`:
 
-- **Mac:** `tools/dist/dist-mac.sh` makes `dist/HS2-Port-<version>-Mac.zip` with the VST3, AU and Standalone app, universal (Apple Silicon and Intel, macOS 12 or later). It signs with the first "Developer ID Application" identity in the keychain (or `HS2_SIGN_ID`), with the hardened runtime. Set `HS2_NOTARY_PROFILE` to a `notarytool` keychain profile to notarize and staple; without it, other Macs show a Gatekeeper warning.
+- **Mac:** `tools/dist/dist-mac.sh` makes `dist/HS2-Port-<version>-Mac.zip` with the VST3, AU and Standalone app, universal (Apple Silicon and Intel, macOS 12 or later). It signs with the first "Developer ID Application" identity in the keychain (or `HS2_SIGN_ID`), with the hardened runtime. To notarize and staple, set `ASC_KEY_ID` and `ASC_ISSUER_ID` for an App Store Connect API key (the .p8 is read from `~/.appstoreconnect/private_keys/AuthKey_<key id>.p8`, or `ASC_KEY_PATH`), or `HS2_NOTARY_PROFILE` for a `notarytool` keychain profile; without either, other Macs show a Gatekeeper warning.
 - **Windows:** `powershell -ExecutionPolicy Bypass -File tools\dist\dist-windows.ps1` makes `dist\HS2-Port-<version>-Windows.zip` with the VST3 and Standalone exe. It finds Visual Studio itself (no developer prompt needed). Set `HS2_SIGN_CERT` (a .pfx) and `HS2_SIGN_PASSWORD` to sign with signtool.
 
 The version comes from `VERSION` in `plugin/CMakeLists.txt`.

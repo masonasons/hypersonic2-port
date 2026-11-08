@@ -6,8 +6,11 @@
 #   HS2_ARCHS           architectures, default "arm64;x86_64" (universal)
 #   HS2_SIGN_ID         codesign identity; default: the first "Developer ID Application" identity in the keychain.
 #                       Set to "-" for ad-hoc signing (runs only on this Mac without a Gatekeeper prompt).
-#   HS2_NOTARY_PROFILE  notarytool keychain profile (xcrun notarytool store-credentials <name> ...). When set,
-#                       the zip is notarized and the bundles stapled. Without it, other Macs show a Gatekeeper warning.
+#   Notarization, either of (without one, other Macs show a Gatekeeper warning):
+#   ASC_KEY_ID, ASC_ISSUER_ID  an App Store Connect API key; the .p8 is read from ASC_KEY_PATH, default
+#                       ~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8
+#   HS2_NOTARY_PROFILE  a notarytool keychain profile (xcrun notarytool store-credentials <name> ...)
+#   When notarizing, the zip is submitted, and the bundles are stapled and zipped again.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -73,14 +76,34 @@ EOF
 
 ditto -c -k --norsrc --noextattr --keepParent "$STAGE" "$ZIP"
 
-if [ -n "${HS2_NOTARY_PROFILE:-}" ]; then
-    echo "== Notarizing"
-    xcrun notarytool submit "$ZIP" --keychain-profile "$HS2_NOTARY_PROFILE" --wait
-    for b in "$STAGE"/*.vst3 "$STAGE"/*.component "$STAGE"/*.app; do xcrun stapler staple "$b"; done
+NOTARY_AUTH=()
+if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ]; then
+    KEY_PATH="${ASC_KEY_PATH:-$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8}"
+    [ -f "$KEY_PATH" ] || { echo "The App Store Connect key is not at $KEY_PATH" >&2; exit 1; }
+    NOTARY_AUTH=(--key "$KEY_PATH" --key-id "$ASC_KEY_ID" --issuer "$ASC_ISSUER_ID")
+elif [ -n "${HS2_NOTARY_PROFILE:-}" ]; then
+    NOTARY_AUTH=(--keychain-profile "$HS2_NOTARY_PROFILE")
+fi
+
+if [ ${#NOTARY_AUTH[@]} -gt 0 ]; then
+    [ "$SIGN_ID" = "-" ] && { echo "Ad-hoc signed bundles cannot be notarized." >&2; exit 1; }
+    echo "== Notarizing (this can take a few minutes)"
+    RESULT="$(xcrun notarytool submit "$ZIP" "${NOTARY_AUTH[@]}" --wait --output-format json)"
+    echo "$RESULT"
+    if ! echo "$RESULT" | grep -q '"status" *: *"Accepted"'; then
+        ID="$(echo "$RESULT" | sed -n 's/.*"id" *: *"\([^"]*\)".*/\1/p' | head -1)"
+        [ -n "$ID" ] && xcrun notarytool log "$ID" "${NOTARY_AUTH[@]}" >&2
+        echo "Notarization was not accepted." >&2
+        exit 1
+    fi
+    for b in "$STAGE"/*.vst3 "$STAGE"/*.component "$STAGE"/*.app; do
+        xcrun stapler staple "$b"
+        xcrun stapler validate "$b"
+    done
     rm -f "$ZIP"
     ditto -c -k --norsrc --noextattr --keepParent "$STAGE" "$ZIP"
 else
-    echo "HS2_NOTARY_PROFILE not set: not notarized (other Macs will show a Gatekeeper warning)." >&2
+    echo "No notarization credentials: not notarized (other Macs will show a Gatekeeper warning)." >&2
 fi
 
 echo "== $ZIP"
