@@ -229,6 +229,7 @@ private:
 
 HS2Processor::HS2Processor()
     : AudioProcessor(BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)) {
+    for (auto& p : pendingChannelProgram_) p = -1;
     // Host parameters: master volume, then per part Mute, Level, Pan, Sends 1-4, Hyperknobs 1-6. Defaults are the
     // engine's own (FUN_1008bad0); the loaded patches set the real values.
     const double masterScale = (8.0 - 2.2 * 0.33) / 4.0;  // master gain = scale * v^2 (hype 0.33, the default)
@@ -856,6 +857,16 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
         e.data[1] = uint8_t(pc & 0x7f);
         events_.push_back(e);
     }
+    // Per-channel program changes (the patched JUCE's per-channel program lists): one per channel, in channel order.
+    for (int ch = 0; ch < 16; ++ch)
+        if (const int pc = pendingChannelProgram_[size_t(ch)].exchange(-1);
+            pc >= 0 && events_.size() < size_t(kEventCapacity)) {
+            hs2::MidiEvent e;
+            e.offset = frames - 1;
+            e.data[0] = uint8_t(0xc0 | ch);
+            e.data[1] = uint8_t(pc & 0x7f);
+            events_.push_back(e);
+        }
 
     hs2::HostTransport tr;
     bool haveTransport = false;
@@ -912,6 +923,21 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
 void HS2Processor::setCurrentProgram(int program) {
     if (program < 0 || program >= kNoProgram) return;
     pendingProgram_ = program;
+}
+
+void HS2Processor::setProgramForMidiChannel(int channel, int program) {
+    if (channel < 0 || channel >= 16 || program < 0 || program > 127) return;
+    pendingChannelProgram_[size_t(channel)] = program;
+}
+
+juce::String HS2Processor::getProgramNameForMidiChannel(int channel, int program) {
+    // The name in the bank of the channel's latest bank select, as the program change would load it.
+    const int bank = bankSelect_[size_t(juce::jlimit(0, 15, channel))].load();
+    if (const auto lib = library()) {
+        const int i = lib->find(bank, program);
+        if (i >= 0) return fromLatin1(displayName(lib->patches[size_t(i)].name));
+    }
+    return "Program " + juce::String(program);
 }
 
 const juce::String HS2Processor::getProgramName(int program) {

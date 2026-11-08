@@ -13,7 +13,9 @@ The plugin is designed first for use with a screen reader: NVDA, JAWS or Narrato
 
 ## Building
 
-Configure the top-level project with `-DHS2_BUILD_PLUGIN=ON`. JUCE is taken from `HS2_JUCE_DIR` (default `C:/programs/JUCE`) when that folder exists; otherwise CMake downloads JUCE 9.0.5 from GitHub during configure (needs git).
+Configure the top-level project with `-DHS2_BUILD_PLUGIN=ON`. CMake clones JUCE 9.0.5 into the build folder during configure (needs git): from the local checkout `HS2_JUCE_DIR` (default `C:/programs/JUCE`) when that is a git checkout, otherwise from GitHub. The local checkout is never changed.
+
+The build's JUCE copy is patched by `plugin/juce_patch/apply.cmake`, on every platform. The patch gives the VST3 one program list per MIDI channel, so a host's MIDI program changes keep their channel; see "MIDI patch changes" below. Configure stops with an error if the JUCE code is not what the patch expects. A build folder made before the patch (with JUCE taken from `C:/programs/JUCE` directly) can fail with "does not match the source used to generate cache"; delete that build folder and configure again.
 
 ### Windows (Visual Studio 2022, from a "x64 Native Tools" prompt)
 
@@ -113,7 +115,8 @@ In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so tha
 - **Background loading.** Patch and combi files are read on a background thread, which also loads the samples into memory. The ready patch then goes into the running engine at the start of the next audio block (about 0.1 to 2 ms), so the other parts keep playing. A complete new engine is built only for a state restore, a new content folder or a new sample rate; the audio thread only try-locks that swap, so it never stalls. Offline renders wait for pending loads, so a render never starts silent.
 - **MIDI patch changes.** As in the original: bank select (controller 0 = 0, controller 32 = bank number) followed by a program change loads that patch into the part of the MIDI channel. Banks 120 and up load combis. This can be turned off in Settings.
   - Senders that put the bank number on controller 0 alone (no controller 32) work too: until a MIDI channel has received a controller 32, a controller 0 value is taken as the bank number. A bank select on its own does not load anything; the program change that follows does.
-  - VST3 has no MIDI program change event. A host passes program changes through the plugin's program list (programs 0 to 127, plus "None"), without the MIDI channel. The plugin uses the channel of the latest bank select, or part 1 if none came yet.
+  - VST3 has no MIDI program change event. A host maps a program change on MIDI channel N to the program list of channel N's unit; the plugin has one per channel (JUCE patch), so program changes on several channels at once all arrive, each in its own part (for example a MIDI file with bank and program changes on every channel at the start).
+  - A host that does not use per-channel units uses the plugin's main program list (programs 0 to 127, plus "None"), without the MIDI channel. The plugin then uses the channel of the latest bank select, or part 1 if none came yet.
 - **Effect tails.** The original cuts some delay tails when the last note ends (it lets a part sleep as soon as it seems silent, and checks only the left channel). "Let effect tails ring out" (on by default) lets them play out; turn it off to hear exactly the original.
 - **Host transport.** Tempo, position, time signature and play state are passed to the engine every block. Tempo-synced LFOs, delays and the arpeggiator follow the host.
 - **Saved state.** The state holds the loaded combi and each part's patch (bank, number and name), the host parameter values, the selected part and the two MIDI / effect-tail settings. It never contains Steinberg data; the patches are read from the content folder again.

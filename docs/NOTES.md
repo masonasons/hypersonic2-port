@@ -1014,3 +1014,15 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   patch's sample elements can play, but the decoded form is large (data + delta floats: 8 bytes per compressed byte):
   82/0 Natural Grand Piano 889 MB in 525 ms, 21/79 583 MB; so the plugin does not call it yet. Open: a smaller decoded
   form (e.g. deltas only, or int16) and/or background preloading with a memory budget.
+- **Program changes on several channels at once (user: a MIDI file in REAPER, 13 tracks to one HS2 Port; not all
+  parts loaded, wrong program in part 1).** The file sends CC32, CC0, program change on every channel at tick 0. With
+  JUCE's single root program list the host maps every channel to one parameter and the plugin kept one pending
+  program, so all but one were lost. Fix: `plugin/juce_patch/apply.cmake` patches the build's JUCE 9.0.5 (FetchContent
+  clone, local checkout or GitHub; never the checkout itself): `VST3ClientExtensions` gets
+  `getPluginHasProgramChangePerMidiChannel`, `setProgramForMidiChannel`, `getProgramNameForMidiChannel`; the VST3
+  wrapper then has 16 more units (ids 'hs2'+1..16) with a program list each ('hsl'+n, 128 programs), a program change
+  parameter per unit ('hsp'+n, kIsProgramChange | kIsList, set on the controller -> setProgramForMidiChannel), and
+  `getUnitByBus(kEvent, kInput, 0, ch)` returns channel ch's unit. The plugin queues one program per channel and adds
+  them at the end of the next block. Test: `hs2plughost --pc-channels` (5 channels at once, bit-identical). Verified
+  that a fresh GitHub clone of JUCE 9.0.5 patches and configures (the Mac path). Still to check in REAPER with the
+  user's file: whether REAPER uses getUnitByBus (VST3's documented way; Kontakt relies on it).

@@ -14,14 +14,22 @@ add_subdirectory(tools/cli)
 option(HS2_BUILD_PLUGIN "Build the JUCE plugin" OFF)
 if(HS2_BUILD_PLUGIN)
   enable_language(C)
-  # A local JUCE checkout if there is one (HS2_JUCE_DIR), else JUCE 9.0.5 is downloaded at configure time.
-  set(HS2_JUCE_DIR "C:/programs/JUCE" CACHE PATH "JUCE source folder (downloaded when it does not exist)")
-  if(EXISTS "${HS2_JUCE_DIR}/CMakeLists.txt")
-    add_subdirectory(${HS2_JUCE_DIR} juce)
+  # JUCE 9.0.5, cloned into the build folder and patched there (plugin/juce_patch/apply.cmake: VST3 program changes
+  # per MIDI channel). The clone comes from a local JUCE git checkout when HS2_JUCE_DIR is one (it is never
+  # modified), else from GitHub.
+  set(HS2_JUCE_DIR "C:/programs/JUCE" CACHE PATH "Local JUCE git checkout to clone from (GitHub when it does not exist)")
+  if(EXISTS "${HS2_JUCE_DIR}/.git")
+    set(HS2_JUCE_REPO "${HS2_JUCE_DIR}")
   else()
-    include(FetchContent)
-    FetchContent_Declare(juce GIT_REPOSITORY https://github.com/juce-framework/JUCE.git GIT_TAG 9.0.5 GIT_SHALLOW TRUE)
-    FetchContent_MakeAvailable(juce)
+    set(HS2_JUCE_REPO https://github.com/juce-framework/JUCE.git)
   endif()
+  include(FetchContent)
+  FetchContent_Declare(juce
+    GIT_REPOSITORY ${HS2_JUCE_REPO}
+    GIT_TAG 9.0.5
+    GIT_SHALLOW TRUE
+    UPDATE_DISCONNECTED TRUE
+    PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/plugin/juce_patch/apply.cmake)
+  FetchContent_MakeAvailable(juce)
   add_subdirectory(plugin)
 endif()

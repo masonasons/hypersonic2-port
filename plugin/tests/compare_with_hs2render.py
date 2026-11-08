@@ -145,6 +145,17 @@ for b, p, ch, notes in [(15, 23, 1, NOTES), (39, 2, 1, NOTES), (9, 0, 2, N2), (1
         ['--out', f(f'plug_{tag}.wav')])
     compare(f'{b}/{p} part {ch}, VST3 program parameter', f(f'plug_{tag}.wav'), f(f'ref_{tag}.wav'))
 
+# 7b. Program changes on several channels at once (as a MIDI file with bank / program changes on every channel at the
+# start), through the per-channel program lists of the patched JUCE.
+MULTI = [(1, 15, 13), (2, 35, 5), (3, 35, 0), (4, 39, 10), (10, 3, 22)]
+NM = '0:1.2:48:100:1,0.1:1.2:60:90:2,0.2:1.2:64:100:3,0.3:1.2:72:100:4,0.4:0.6:36:110:10,0.6:0.6:42:100:10'
+ev = ','.join(f'@64:load:{c}:{b}:{p}' for c, b, p in MULTI)
+run([REN, '--part', '1:84:0', '--load-bank', '--skip', '64', '--events', ev, '--notes', NM] + RO + COMMON +
+    ['--host', '-1:120:0', '--block', '32', '--out', f('ref_multi.wav')])
+run([HOST, VST, '--pc-channels', ','.join(f'{c}:{b}:{p}' for c, b, p in MULTI), '--notes', NM] + COMMON +
+    ['--out', f('plug_multi.wav')])
+compare('5 channels at once, per-channel program lists', f('plug_multi.wav'), f('ref_multi.wav'))
+
 # 8. Ring-out off and on through the state, on 39/2 "Soloing" (when off, its delay tail is cut as in the original).
 SOLO = '0:0.25:72:100'
 run([HOST, VST, '--bank', '39', '--patch', '2', '--notes', SOLO] + COMMON +

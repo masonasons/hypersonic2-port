@@ -96,7 +96,7 @@ struct Setup {
     std::array<Part, kNumParts> parts;
 };
 
-class HS2Processor : public juce::AudioProcessor, private juce::Timer {
+class HS2Processor : public juce::AudioProcessor, public juce::VST3ClientExtensions, private juce::Timer {
 public:
     HS2Processor();
     ~HS2Processor() override;
@@ -125,6 +125,13 @@ public:
     // always the extra entry 128 ("none"): the same number again (e.g. with another bank) still arrives.
     static constexpr int kNoProgram = 128;
     int getNumPrograms() override { return kNoProgram + 1; }
+    // With the patched JUCE (plugin/juce_patch): one program list per MIDI channel, so a host's program changes keep
+    // their channel and several channels can change at once (a MIDI file with bank / program changes on every
+    // channel at the start). The root list above stays for hosts that do not use per-channel units.
+    juce::VST3ClientExtensions* getVST3ClientExtensions() override { return this; }
+    bool getPluginHasProgramChangePerMidiChannel() const override { return true; }
+    void setProgramForMidiChannel(int channel, int program) override;
+    juce::String getProgramNameForMidiChannel(int channel, int program) override;
     int getCurrentProgram() override { return kNoProgram; }
     void setCurrentProgram(int program) override;
     const juce::String getProgramName(int program) override;
@@ -253,6 +260,7 @@ private:
     std::atomic<bool> cutOnLoad_{true};
     // VST3 program changes (setCurrentProgram -> audio thread, see getNumPrograms).
     std::atomic<int> pendingProgram_{-1};
+    std::array<std::atomic<int>, 16> pendingChannelProgram_;  // per MIDI channel, -1 = none (patched JUCE)
     std::atomic<int> bankChannel_{0};                  // MIDI channel (0-based) of the latest bank select
     std::array<std::atomic<int>, 16> bankSelect_{};    // per channel: CC0 * 128 + CC32 as last received
     std::array<bool, 16> sawBankLsb_{};                // audio thread: a CC32 came on this channel (else CC0 = bank)

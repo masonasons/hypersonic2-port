@@ -16,6 +16,10 @@
 // the program through the plugin's program list parameter (setCurrentProgram after block 0), which the plugin turns
 // into a program change at the end of block 1; the patch then starts at block 2 (hs2render --skip 2*block,
 // "@2*block:load:...").
+// --pc-channels "ch:bank:prog,...": program changes on several MIDI channels at once, the way a VST3 host sends them
+// with per-channel program lists: bank select as MIDI on each channel in block 0, then each channel's program through
+// its own program change parameter ("MIDI Channel N Program", the patched JUCE) after block 0; the plugin adds them at
+// the end of block 1 and the patches start at block 2 (as --pc-param).
 // --state-attr sets an attribute of the plugin's own state XML (e.g. ringOut=0) in the --state-in state before it is
 // restored (inside the host's VST3PluginState wrapper: IComponent, base64, then the plugin's copyXmlToBinary block).
 // The play head reports 120 bpm, stopped, position 0, 4/4 (as hs2render --host "-1:120:0").
@@ -116,7 +120,13 @@ int main(int argc, char* argv[]) {
     const int block = opt("--block", "32").getIntValue();
     const juce::String stateIn = opt("--state-in", {}), stateOut = opt("--state-out", {});
     const bool pump = !args.contains("--no-pump");
-    const bool pcParam = args.contains("--pc-param");  // --no-pump: never run the message loop (state saved "too early")
+    const bool pcParam = args.contains("--pc-param");
+    struct ChannelPc { int ch, bank, prog; };
+    std::vector<ChannelPc> pcChannels;
+    for (const auto& tok : juce::StringArray::fromTokens(opt("--pc-channels", {}), ",", {})) {
+        const auto f = juce::StringArray::fromTokens(tok, ":", {});
+        if (f.size() == 3) pcChannels.push_back({f[0].getIntValue(), f[1].getIntValue(), f[2].getIntValue()});
+    }  // --no-pump: never run the message loop (state saved "too early")
 
     std::vector<Note> notes;
     for (const auto& tok : juce::StringArray::fromTokens(opt("--notes", "0:1:60:100"), ",", {})) {
@@ -158,7 +168,7 @@ int main(int argc, char* argv[]) {
     }
     plugin->prepareToPlay(sr, block);
 
-    const int start = stateIn.isNotEmpty() ? 0 : pcParam ? 2 * block : block;  // where the selected patch starts
+    const int start = stateIn.isNotEmpty() ? 0 : (pcParam || !pcChannels.empty()) ? 2 * block : block;  // patch start
     double end = 0;
     for (const auto& n : notes) end = std::max(end, n.t + n.len);
     const int total = start + int((lead + end + tail) * sr);
@@ -167,7 +177,12 @@ int main(int argc, char* argv[]) {
         juce::MidiMessage msg;
     };
     std::vector<Ev> evs;
-    if (stateIn.isEmpty()) {
+    if (stateIn.isEmpty() && !pcChannels.empty()) {
+        for (const auto& c : pcChannels) {
+            evs.push_back({0, juce::MidiMessage::controllerEvent(c.ch, 0, 0)});
+            evs.push_back({0, juce::MidiMessage::controllerEvent(c.ch, 32, c.bank)});
+        }
+    } else if (stateIn.isEmpty()) {
         evs.push_back({0, juce::MidiMessage::controllerEvent(channel, 0, 0)});
         evs.push_back({0, juce::MidiMessage::controllerEvent(channel, 32, bank)});
         if (!pcParam) evs.push_back({0, juce::MidiMessage::programChange(channel, patch)});
@@ -222,6 +237,20 @@ int main(int argc, char* argv[]) {
             knobDone = true;
         }
         plugin->processBlock(buf, midi);
+        if (!pcChannels.empty() && stateIn.isEmpty() && t == 0) {
+            for (const auto& c : pcChannels) {
+                const auto want = "MIDI Channel " + juce::String(c.ch) + " Program";
+                juce::AudioProcessorParameter* found = nullptr;
+                for (auto* p : plugin->getParameters())
+                    if (p->getName(100) == want) found = p;
+                if (found == nullptr) {
+                    std::fprintf(stderr, "no parameter %s%s", want.toRawUTF8(), juce::newLine.getDefault());
+                    return 1;
+                }
+                found->setValueNotifyingHost(float(c.prog) / 127.f);
+            }
+            juce::MessageManager::getInstance()->runDispatchLoopUntil(20);
+        }
         if (pcParam && stateIn.isEmpty() && t == 0) {
             if (plugin->getNumPrograms() < 128) {
                 std::fprintf(stderr, "the plugin has %d programs%s", plugin->getNumPrograms(), juce::newLine.getDefault());
