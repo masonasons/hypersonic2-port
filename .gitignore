@@ -1,0 +1,19 @@
+# Decoded Steinberg content - never commit
+samples/
+reference/
+*.wav
+# Ghidra project files (large, binary)
+ghidra/
+*.gpr
+*.rep/
+__pycache__/
+build/
+tools/reaper/job.tsv
+build_*/
+# Steinberg material kept locally only: manual text and decompiled code
+docs/manual-text/
+docs/engine/element_setter.c
+# Python / editor leftovers
+*.pyc
+.vs/
+.vscode/

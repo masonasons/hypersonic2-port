@@ -1,0 +1,125 @@
+# HS2 Port plugin
+
+A JUCE plugin around the Hypersonic 2 engine port (`core/`). Like the original it has 16 parts: part N plays MIDI channel N. A patch loads into one part; a combi loads a whole 16-part setup with its global effects. Formats: VST3 and Standalone on Windows; VST3, AU and Standalone on Mac.
+
+The plugin is designed first for use with a screen reader: NVDA, JAWS or Narrator on Windows, and VoiceOver on Mac.
+
+## Status
+
+- The audio matches `hs2render` sample for sample, and `hs2render` matches the original engine. `tests/compare_with_hs2render.py` checks this.
+- All 100 factory combis render the same as the original.
+- Not in the plugin yet: saving combis, Combi Chain files, multiple outputs, and host parameters for the part settings beyond the mixer and Hyperknobs (key ranges, transpose, arpeggiator, global effects).
+- The engine's open items are listed in `docs/NOTES.md`. The Status box and the patch information name any unsupported feature of a loaded patch.
+
+## Building
+
+Configure the top-level project with `-DHS2_BUILD_PLUGIN=ON`. JUCE is taken from `HS2_JUCE_DIR` (default `C:/programs/JUCE`) when that folder exists; otherwise CMake downloads JUCE 9.0.5 from GitHub during configure (needs git).
+
+### Windows (Visual Studio 2022, from a "x64 Native Tools" prompt)
+
+```
+cmake -S . -B build_plugin -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -DHS2_BUILD_PLUGIN=ON
+cmake --build build_plugin --target HS2Port_VST3 HS2Port_Standalone hs2plughost
+```
+
+Results are in `build_plugin/plugin/HS2Port_artefacts/Release/`:
+- `VST3/HS2 Port.vst3`
+- `Standalone/HS2 Port.exe`
+
+The build does not install anything. To use the VST3 in a DAW, copy `HS2 Port.vst3` to `C:\Program Files\Common Files\VST3`.
+
+### Mac (Xcode command line tools, CMake 3.22 or later)
+
+```
+cmake -S . -B build_plugin -G Xcode -DHS2_BUILD_PLUGIN=ON
+cmake --build build_plugin --config Release --target HS2Port_VST3 HS2Port_AU HS2Port_Standalone
+```
+
+Or with Ninja instead of Xcode: `cmake -S . -B build_plugin -G Ninja -DCMAKE_BUILD_TYPE=Release -DHS2_BUILD_PLUGIN=ON`, then `cmake --build build_plugin --target HS2Port_VST3 HS2Port_AU HS2Port_Standalone`.
+
+Results are in `build_plugin/plugin/HS2Port_artefacts/Release/` (`VST3/HS2 Port.vst3`, `AU/HS2 Port.component`, `Standalone/HS2 Port.app`). To use them, copy the VST3 to `~/Library/Audio/Plug-Ins/VST3` and the AU to `~/Library/Audio/Plug-Ins/Components`. The plugin looks for the content in `~/Hypersonic 2 Content`; any other folder can be chosen in Settings.
+
+Not built or tested on a Mac yet. The engine needs `-ffp-contract=off`, which `core/CMakeLists.txt` sets for Clang. It was checked under MSVC, where `long double` is 64-bit as on Apple Silicon, and matches the original there as well.
+
+## Content
+
+The plugin reads the user's own Hypersonic 2 Content folder; nothing from it is copied into the plugin.
+
+- **Windows:** the folder comes from the original's registry entry, `HKLM\SOFTWARE\WOW6432Node\Steinberg\Hypersonic 2\Content Location`. If that entry is missing, it falls back to `C:\Hypersonic 2 Content`.
+- **Mac:** the default is `~/Hypersonic 2 Content`. Use "Choose content folder..." in Settings to point at the real folder.
+
+The folder choice and the piano memory mode are saved in the user settings file `HS2Port/HS2Port.settings` and shared by all instances.
+
+## Using it with a screen reader
+
+When the window opens, focus is in the search box. Tab and Shift+Tab move through the controls in this order (Tab wraps around, so the Part section comes after Status):
+
+1. **Part:**
+   - Part selector. Each entry names its patch, for example "Part 3: Soft Rubber Bass" or "Part 4: empty". The patch browser, Current patch, Hyperknobs and Part mixer work on the selected part.
+   - Clear part.
+2. **Patch browser:**
+   - Search box. It searches patch, combi and bank names.
+   - Bank filter. The combi banks ("120 Combis", "121 User Combis") hold combis.
+   - Patch list. Its name includes how many patches are shown, for example "Patches, 3 shown". Combis end in "(combi)".
+   - Load selected patch, Previous patch, Next patch.
+   - "Load patch when selected in the list". When this is on, moving through the list loads each patch into the selected part, so you can play it straight away. Moving onto a combi loads the whole combi.
+3. **Current patch:** a read-only text box with the selected part's patch: name, bank, description, controller notes (what the mod wheel and aftertouch do), the Hyperknob names, the author, unsupported features, and the loaded combi.
+4. **Part N Hyperknobs:** six sliders named after the patch's own knobs, for example "Hyperknob 4: Thump". Values are percentages.
+5. **Part N mixer:** Mute, Level, Pan, Effect send 1 to 4. Level and sends read as a percentage and in dB.
+6. **Master:** master volume in dB (all parts).
+7. **Settings:** content folder, "Choose content folder...", piano memory mode (ECO, MID or XXL), "Load patches and combis from MIDI program changes", "Let effect tails ring out", Keyboard help.
+8. **Status:** a read-only text box with loading progress, errors, and features of the loaded patches that the port does not support yet.
+
+### Keys
+
+| Key | Action |
+|---|---|
+| Ctrl+P | Part selector. Up and Down arrows choose the part. |
+| Ctrl+Shift+Page Down / Ctrl+Shift+Page Up | Next / previous part (focus moves to the part selector, which reads the part and its patch) |
+| Ctrl+F | Search box. Type words from the patch, combi or bank name; Enter moves to the list. |
+| Ctrl+L | Patch list. Type letters to jump to a patch; Enter loads it into the selected part (a combi into all parts). |
+| Ctrl+Page Down / Ctrl+Page Up | Next / previous patch in the list |
+| Ctrl+I | Patch information of the selected part |
+| Arrows, Page Up / Page Down, Home / End | Change the focused slider |
+| F1 | Keyboard help |
+
+On a Mac, use Cmd instead of Ctrl.
+
+In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so that these keys reach the plugin.
+
+### Design rules
+
+- **Stock JUCE controls only.** Each one has a title, a description, a role and a place in the focus order. Visual labels are hidden from accessibility, so names are not read twice.
+- **Grouped sections.** The sections are UI Automation groups with names. The sections that work on the selected part say which ("Part 3 mixer").
+- **No spoken announcements.** On Windows, JUCE's `postAnnouncement` speaks through its own SAPI voice, not through the user's screen reader, so it is not used. Information is text the screen reader reads in the normal way:
+  - The part selector names each part's patch.
+  - The patch list's name carries the match count.
+  - Status is a text box.
+  - When an action the user asked for fails, focus moves to the Status box, so the error is read.
+- **Focus never sits on an unusable component.** If the window has focus but no control does, focus goes to the search box. Inside a DAW this only happens while the plugin's own window has focus, so the plugin never takes focus from the DAW.
+- **Readable by host generic UIs.** The master volume and, for each part, Mute, Level, Pan, the four effect sends and the six Hyperknobs are host parameters with names and value text ("Part 3 Level", "Part 3 Hyperknob 4: Thump"), so a host's generic UI or OSARA's parameter list can read them too. The Hyperknob names follow the loaded patches.
+
+## How it works
+
+- **Background loading.** Patch and combi files are read on a background thread, which also loads the samples into memory. The ready patch then goes into the running engine at the start of the next audio block (about 0.1 to 2 ms), so the other parts keep playing. A complete new engine is built only for a state restore, a new content folder or a new sample rate; the audio thread only try-locks that swap, so it never stalls. Offline renders wait for pending loads, so a render never starts silent.
+- **MIDI patch changes.** As in the original: bank select (controller 0 = 0, controller 32 = bank number) followed by a program change loads that patch into the part of the MIDI channel. Banks 120 and up load combis. This can be turned off in Settings.
+  - VST3 has no MIDI program change event. A host passes program changes through the plugin's program list (programs 0 to 127, plus "None"), without the MIDI channel. The plugin uses the channel of the latest bank select, or part 1 if none came yet.
+- **Effect tails.** The original cuts some delay tails when the last note ends (it lets a part sleep as soon as it seems silent, and checks only the left channel). "Let effect tails ring out" (on by default) lets them play out; turn it off to hear exactly the original.
+- **Host transport.** Tempo, position, time signature and play state are passed to the engine every block. Tempo-synced LFOs, delays and the arpeggiator follow the host.
+- **Saved state.** The state holds the loaded combi and each part's patch (bank, number and name), the host parameter values, the selected part and the two MIDI / effect-tail settings. It never contains Steinberg data; the patches are read from the content folder again.
+- **New instance.** As in the original, part 1 holds "Welcome To The Matrix" (bank 084 HS2 Preview Patches, patch 0); the other parts are empty.
+
+## Tests
+
+- **`tests/compare_with_hs2render.py`:** the VST3, loaded by `hs2plughost` the way a DAW loads it, must render exactly what `hs2render` renders in engine mode. It covers:
+  - patches loaded by MIDI program change into part 1 and into part 2
+  - combis loaded by MIDI program change
+  - state save and restore of each
+  - 48 kHz with 512-frame blocks
+  - a Hyperknob and a part level moved by the host, also after a state round trip
+- **`tests/keyboard_walk.ps1`:** opens the standalone app for about half a minute and checks its keyboard behaviour through UI Automation, which is what screen readers read:
+  - where focus lands at start
+  - the Tab order
+  - search, Enter, arrows and type-ahead
+  - the shortcuts
+  - the part selector, a patch loaded into part 3, and a combi

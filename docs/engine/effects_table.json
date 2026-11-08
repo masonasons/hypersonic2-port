@@ -1,0 +1,834 @@
+[
+ {
+  "id": 0,
+  "name": "Reverb",
+  "ctor": "100257c0",
+  "vtable": "0x100a8a5c",
+  "methods": {
+   "setSampleRate": "0x10025820",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10025a50",
+   "setParam": "0x10025f50",
+   "m18": "0x100253d0",
+   "paramName": "0x10026050",
+   "paramDisplay": "0x10026100"
+  }
+ },
+ {
+  "id": 1,
+  "name": "Hall Reverb",
+  "ctor": "100261f0",
+  "vtable": "0x100a8abc",
+  "methods": {
+   "setSampleRate": "0x10026260",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10026590",
+   "setParam": "0x10026bc0",
+   "m18": "0x100253d0",
+   "paramName": "0x10026d00",
+   "paramDisplay": "0x10027a80"
+  }
+ },
+ {
+  "id": 2,
+  "name": "Plate Reverb",
+  "ctor": "10026eb0",
+  "vtable": "0x100a8b2c",
+  "methods": {
+   "setSampleRate": "0x10026f20",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10027250",
+   "setParam": "0x10027850",
+   "m18": "0x100253d0",
+   "paramName": "0x100279a0",
+   "paramDisplay": "0x10027a80"
+  }
+ },
+ {
+  "id": 3,
+  "name": "Room Reverb",
+  "ctor": "10029580",
+  "vtable": "0x100a8c44",
+  "methods": {
+   "setSampleRate": "0x100295e0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10029810",
+   "setParam": "0x1002a5d0",
+   "m18": "0x100253d0",
+   "paramName": "0x1002a730",
+   "paramDisplay": "0x1002a850"
+  }
+ },
+ {
+  "id": 4,
+  "name": "Reverse Reverb",
+  "ctor": "10027bd0",
+  "vtable": "0x100a8b70",
+  "methods": {
+   "setSampleRate": "0x10027c00",
+   "tempo": "0x1000ca60",
+   "init": "0x10027d20",
+   "process": "0x10027d50",
+   "setParam": "0x10028460",
+   "m18": "0x100253d0",
+   "paramName": "0x100285a0",
+   "paramDisplay": "0x10028680"
+  }
+ },
+ {
+  "id": 5,
+  "name": "Non-Linear Reverb",
+  "ctor": "1002a970",
+  "vtable": "0x100a8d08",
+  "methods": {
+   "setSampleRate": "0x1002a9d0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1002ac50",
+   "setParam": "0x1002b0c0",
+   "m18": "0x100253d0",
+   "paramName": "0x1002b1f0",
+   "paramDisplay": "0x1002b2b0"
+  }
+ },
+ {
+  "id": 6,
+  "name": "Early Reflections",
+  "ctor": "10028760",
+  "vtable": "0x100a8bd0",
+  "methods": {
+   "setSampleRate": "0x100287a0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10028850",
+   "setParam": "0x10028b50",
+   "m18": "0x100253d0",
+   "paramName": "0x10028c40",
+   "paramDisplay": "0x100294d0"
+  }
+ },
+ {
+  "id": 7,
+  "name": "Tuned Resonators",
+  "ctor": "1002b3b0",
+  "vtable": "0x100a8d34",
+  "methods": {
+   "setSampleRate": "0x1002b420",
+   "tempo": "0x1002b410",
+   "init": "0x10002170",
+   "process": "0x1002b500",
+   "setParam": "0x1002b8c0",
+   "m18": "0x100253d0",
+   "paramName": "0x1002bbc0",
+   "paramDisplay": "0x1002bd30"
+  }
+ },
+ {
+  "id": 8,
+  "name": "Overheads",
+  "ctor": "10028d60",
+  "vtable": "0x100a8bfc",
+  "methods": {
+   "setSampleRate": "0x10028da0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10028e60",
+   "setParam": "0x100292c0",
+   "m18": "0x100253d0",
+   "paramName": "0x100293d0",
+   "paramDisplay": "0x100294d0"
+  }
+ },
+ {
+  "id": 10,
+  "name": "Delay",
+  "ctor": "1002bf80",
+  "vtable": "0x100a8e14",
+  "methods": {
+   "setSampleRate": "0x1002bfd0",
+   "tempo": "0x1000ca60",
+   "init": "0x1002d850",
+   "process": "0x1002c0a0",
+   "setParam": "0x1002c4e0",
+   "m18": "0x100253d0",
+   "paramName": "0x1002c6e0",
+   "paramDisplay": "0x1002c730"
+  }
+ },
+ {
+  "id": 11,
+  "name": "Stereo Delay",
+  "ctor": "1002d740",
+  "vtable": "0x100a8ed4",
+  "methods": {
+   "setSampleRate": "0x1002d780",
+   "tempo": "0x1000ca60",
+   "init": "0x1002d850",
+   "process": "0x1002d880",
+   "setParam": "0x1002ddf0",
+   "m18": "0x100253d0",
+   "paramName": "0x1002dff0",
+   "paramDisplay": "0x1002e0a0"
+  }
+ },
+ {
+  "id": 12,
+  "name": "Long Delay",
+  "ctor": "10043790",
+  "vtable": "0x100a9cf4",
+  "methods": {
+   "setSampleRate": "0x1002c860",
+   "tempo": "0x1000ca60",
+   "init": "0x1002d850",
+   "process": "0x1002c0a0",
+   "setParam": "0x1002c4e0",
+   "m18": "0x100253d0",
+   "paramName": "0x1002c870",
+   "paramDisplay": "0x1002c730"
+  }
+ },
+ {
+  "id": 13,
+  "name": "Tape Delay",
+  "ctor": "1002e260",
+  "vtable": "0x100a8f14",
+  "methods": {
+   "setSampleRate": "0x1002e2b0",
+   "tempo": "0x1000ca60",
+   "init": "0x10043a60",
+   "process": "0x1002e3c0",
+   "setParam": "0x10043a90",
+   "m18": "0x100253d0",
+   "paramName": "0x1002e8a0",
+   "paramDisplay": "0x1002e9f0"
+  }
+ },
+ {
+  "id": 14,
+  "name": "Ducking Delay",
+  "ctor": "1002cc60",
+  "vtable": "0x100a8e7c",
+  "methods": {
+   "setSampleRate": "0x1002ccc0",
+   "tempo": "0x1002ccb0",
+   "init": "0x1002cda0",
+   "process": "0x1002cdd0",
+   "setParam": "0x1002d070",
+   "m18": "0x100253d0",
+   "paramName": "0x1002d3e0",
+   "paramDisplay": "0x1002d520"
+  }
+ },
+ {
+  "id": 15,
+  "name": "Grain Delay",
+  "ctor": "1002eb60",
+  "vtable": "0x100a8f8c",
+  "methods": {
+   "setSampleRate": "0x1002ebc0",
+   "tempo": "0x1002b410",
+   "init": "0x1002ecf0",
+   "process": "0x1002ed20",
+   "setParam": "0x1002f300",
+   "m18": "0x100253d0",
+   "paramName": "0x1002f460",
+   "paramDisplay": "0x1002f5a0"
+  }
+ },
+ {
+  "id": 16,
+  "name": "Diffuser Delay",
+  "ctor": "100437e0",
+  "vtable": "0x100a9d18",
+  "methods": {
+   "setSampleRate": "0x1002bfd0",
+   "tempo": "0x1000ca60",
+   "init": "0x1002d850",
+   "process": "0x1002c8b0",
+   "setParam": "0x1002c4e0",
+   "m18": "0x100253d0",
+   "paramName": "0x1002cbf0",
+   "paramDisplay": "0x1002c730"
+  }
+ },
+ {
+  "id": 19,
+  "name": "Chorus + Reverb",
+  "ctor": "10030830",
+  "vtable": "0x100a90b8",
+  "methods": {
+   "setSampleRate": "0x100308c0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x100309c0",
+   "setParam": "0x10030ce0",
+   "m18": "0x100253d0",
+   "paramName": "0x10030df0",
+   "paramDisplay": "0x10030f10"
+  }
+ },
+ {
+  "id": 20,
+  "name": "Chorus",
+  "ctor": "10031000",
+  "vtable": "0x100a9114",
+  "methods": {
+   "setSampleRate": "0x10031020",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10031100",
+   "setParam": "0x10031440",
+   "m18": "0x100253d0",
+   "paramName": "0x10031510",
+   "paramDisplay": "0x10031570"
+  }
+ },
+ {
+  "id": 21,
+  "name": "Quad Chorus",
+  "ctor": "10031610",
+  "vtable": "0x100a914c",
+  "methods": {
+   "setSampleRate": "0x10031630",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10031740",
+   "setParam": "0x10031cc0",
+   "m18": "0x100253d0",
+   "paramName": "0x10031e00",
+   "paramDisplay": "0x10031eb0"
+  }
+ },
+ {
+  "id": 22,
+  "name": "Space Chorus",
+  "ctor": "10031f80",
+  "vtable": "0x100a9190",
+  "methods": {
+   "setSampleRate": "0x10031fb0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x100320f0",
+   "setParam": "0x10032490",
+   "m18": "0x100253d0",
+   "paramName": "0x10032570",
+   "paramDisplay": "0x10031570"
+  }
+ },
+ {
+  "id": 23,
+  "name": "Ensemble",
+  "ctor": "10032660",
+  "vtable": "0x100a91c4",
+  "methods": {
+   "setSampleRate": "0x10032680",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10032770",
+   "setParam": "0x10032bb0",
+   "m18": "0x100253d0",
+   "paramName": "0x10032ca0",
+   "paramDisplay": "0x10032d10"
+  }
+ },
+ {
+  "id": 30,
+  "name": "Flanger",
+  "ctor": "10032d80",
+  "vtable": "0x100a91f8",
+  "methods": {
+   "setSampleRate": "0x10032dc0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10032ec0",
+   "setParam": "0x10033140",
+   "m18": "0x100253d0",
+   "paramName": "0x10033200",
+   "paramDisplay": "0x10033250"
+  }
+ },
+ {
+  "id": 31,
+  "name": "Step Flanger",
+  "ctor": "10033300",
+  "vtable": "0x100a9230",
+  "methods": {
+   "setSampleRate": "0x10033340",
+   "tempo": "0x1000ca60",
+   "init": "0x10033460",
+   "process": "0x10033480",
+   "setParam": "0x100338d0",
+   "m18": "0x100253d0",
+   "paramName": "0x10033a40",
+   "paramDisplay": "0x10033b20"
+  }
+ },
+ {
+  "id": 40,
+  "name": "Phaser",
+  "ctor": "1002f860",
+  "vtable": "0x100a9038",
+  "methods": {
+   "setSampleRate": "0x1002f8a0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1002f940",
+   "setParam": "0x1002fbd0",
+   "m18": "0x100253d0",
+   "paramName": "0x1002fcc0",
+   "paramDisplay": "0x10032d10"
+  }
+ },
+ {
+  "id": 41,
+  "name": "Deep Phaser",
+  "ctor": "10030140",
+  "vtable": "0x100a9088",
+  "methods": {
+   "setSampleRate": "0x10030180",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10030260",
+   "setParam": "0x100305f0",
+   "m18": "0x100253d0",
+   "paramName": "0x10030730",
+   "paramDisplay": "0x100307f0"
+  }
+ },
+ {
+  "id": 42,
+  "name": "Bi-Phaser",
+  "ctor": "10043830",
+  "vtable": "0x100a9d3c",
+  "methods": {
+   "setSampleRate": "0x1002fd50",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1002fdb0",
+   "setParam": "0x1002fbd0",
+   "m18": "0x100253d0",
+   "paramName": "0x10030100",
+   "paramDisplay": "0x10032d10"
+  }
+ },
+ {
+  "id": 50,
+  "name": "Pan / Tremolo",
+  "ctor": "10033c20",
+  "vtable": "0x100a9274",
+  "methods": {
+   "setSampleRate": "0x10033c40",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10033cd0",
+   "setParam": "0x10033f00",
+   "m18": "0x100253d0",
+   "paramName": "0x10033fa0",
+   "paramDisplay": "0x10034020"
+  }
+ },
+ {
+  "id": 51,
+  "name": "Stereo Width",
+  "ctor": "10034090",
+  "vtable": "0x100a92a8",
+  "methods": {
+   "setSampleRate": "0x100340b0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x100341b0",
+   "setParam": "0x100346d0",
+   "m18": "0x100253d0",
+   "paramName": "0x10034830",
+   "paramDisplay": "0x10034940"
+  }
+ },
+ {
+  "id": 52,
+  "name": "Stereo Enhancer",
+  "ctor": "10034af0",
+  "vtable": "0x100a9308",
+  "methods": {
+   "setSampleRate": "0x10034b10",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10034bc0",
+   "setParam": "0x10035950",
+   "m18": "0x100253d0",
+   "paramName": "0x10035c60",
+   "paramDisplay": "0x10035d70"
+  }
+ },
+ {
+  "id": 54,
+  "name": "Scanner Vibrato",
+  "ctor": "10035ea0",
+  "vtable": "0x100a9388",
+  "methods": {
+   "setSampleRate": "0x10036000",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10036100",
+   "setParam": "0x10036470",
+   "m18": "0x100253d0",
+   "paramName": "0x10036570",
+   "paramDisplay": "0x10036620"
+  }
+ },
+ {
+  "id": 55,
+  "name": "Rotary Speaker",
+  "ctor": "100367d0",
+  "vtable": "0x100a93f0",
+  "methods": {
+   "setSampleRate": "0x10036800",
+   "tempo": "0x1002b410",
+   "init": "0x10002170",
+   "process": "0x100369b0",
+   "setParam": "0x10036ff0",
+   "m18": "0x100253d0",
+   "paramName": "0x10037240",
+   "paramDisplay": "0x100373a0"
+  }
+ },
+ {
+  "id": 56,
+  "name": "Rotary Speaker 2",
+  "ctor": "10037560",
+  "vtable": "0x100a9494",
+  "methods": {
+   "setSampleRate": "0x10037690",
+   "tempo": "0x1002b410",
+   "init": "0x10002170",
+   "process": "0x10037840",
+   "setParam": "0x10038050",
+   "m18": "0x100253d0",
+   "paramName": "0x10038240",
+   "paramDisplay": "0x100383e0"
+  }
+ },
+ {
+  "id": 60,
+  "name": "Pitch Shift",
+  "ctor": "10043870",
+  "vtable": "0x100a9d60",
+  "methods": {
+   "setSampleRate": "0x100385e0",
+   "tempo": "0x1000ca60",
+   "init": "0x10038c80",
+   "process": "0x10038700",
+   "setParam": "0x10038cb0",
+   "m18": "0x100253d0",
+   "paramName": "0x10038e70",
+   "paramDisplay": "0x10038f90"
+  }
+ },
+ {
+  "id": 61,
+  "name": "Detune",
+  "ctor": "10038590",
+  "vtable": "0x100a9554",
+  "methods": {
+   "setSampleRate": "0x100385e0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10038700",
+   "setParam": "0x10038a90",
+   "m18": "0x100253d0",
+   "paramName": "0x10038b40",
+   "paramDisplay": "0x10038ba0"
+  }
+ },
+ {
+  "id": 70,
+  "name": "Vintage Filter",
+  "ctor": "10039140",
+  "vtable": "0x100a9610",
+  "methods": {
+   "setSampleRate": "0x10039160",
+   "tempo": "0x1002b410",
+   "init": "0x10002170",
+   "process": "0x10039220",
+   "setParam": "0x100399e0",
+   "m18": "0x100253d0",
+   "paramName": "0x10039c40",
+   "paramDisplay": "0x10039df0"
+  }
+ },
+ {
+  "id": 71,
+  "name": "Wah Pedal",
+  "ctor": "1003a100",
+  "vtable": "0x100a96f0",
+  "methods": {
+   "setSampleRate": "0x1003a120",
+   "tempo": "0x1000ca60",
+   "init": "0x1003a1f0",
+   "process": "0x1003a210",
+   "setParam": "0x1003a670",
+   "m18": "0x100253d0",
+   "paramName": "0x1003a820",
+   "paramDisplay": "0x1003a8f0"
+  }
+ },
+ {
+  "id": 72,
+  "name": "TalkBox",
+  "ctor": "1003aa10",
+  "vtable": "0x100a976c",
+  "methods": {
+   "setSampleRate": "0x1003ab90",
+   "tempo": "0x1000ca60",
+   "init": "0x1003ac30",
+   "process": "0x1003ac50",
+   "setParam": "0x1003afc0",
+   "m18": "0x100253d0",
+   "paramName": "0x1003b170",
+   "paramDisplay": "0x1003b230"
+  }
+ },
+ {
+  "id": 80,
+  "name": "Shelf EQ",
+  "ctor": "1003b340",
+  "vtable": "0x100a97dc",
+  "methods": {
+   "setSampleRate": "0x1003b370",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003b3f0",
+   "setParam": "0x1003b7e0",
+   "m18": "0x100253d0",
+   "paramName": "0x1003b8e0",
+   "paramDisplay": "0x1003b990"
+  }
+ },
+ {
+  "id": 81,
+  "name": "Parametric EQ",
+  "ctor": "1003b9e0",
+  "vtable": "0x100a9830",
+  "methods": {
+   "setSampleRate": "0x1003ba00",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003bec0",
+   "setParam": "0x1003c5f0",
+   "m18": "0x100253d0",
+   "paramName": "0x1003c6d0",
+   "paramDisplay": "0x1003c820"
+  }
+ },
+ {
+  "id": 85,
+  "name": "Enhancer",
+  "ctor": "1003c990",
+  "vtable": "0x100a98b4",
+  "methods": {
+   "setSampleRate": "0x1003c9b0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003ca50",
+   "setParam": "0x1003cc00",
+   "m18": "0x100253d0",
+   "paramName": "0x1003ccf0",
+   "paramDisplay": "0x1003cdc0"
+  }
+ },
+ {
+  "id": 90,
+  "name": "Limiter",
+  "ctor": "1003ce80",
+  "vtable": "0x100a9918",
+  "methods": {
+   "setSampleRate": "0x1003cea0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003cf10",
+   "setParam": "0x1003d230",
+   "m18": "0x100253d0",
+   "paramName": "0x1003d350",
+   "paramDisplay": "0x1003d420"
+  }
+ },
+ {
+  "id": 91,
+  "name": "Compressor",
+  "ctor": "1003d490",
+  "vtable": "0x100a9944",
+  "methods": {
+   "setSampleRate": "0x1003d4b0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003d520",
+   "setParam": "0x1003d950",
+   "m18": "0x100253d0",
+   "paramName": "0x1003daa0",
+   "paramDisplay": "0x1003dba0"
+  }
+ },
+ {
+  "id": 92,
+  "name": "Multiband",
+  "ctor": "1003dc50",
+  "vtable": "0x100a9988",
+  "methods": {
+   "setSampleRate": "0x1003dc70",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003dd10",
+   "setParam": "0x1003df40",
+   "m18": "0x100253d0",
+   "paramName": "0x1003e090",
+   "paramDisplay": "0x1003e1a0"
+  }
+ },
+ {
+  "id": 93,
+  "name": "Punch",
+  "ctor": "1003e240",
+  "vtable": "0x100a99d0",
+  "methods": {
+   "setSampleRate": "0x1003e260",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003e3e0",
+   "setParam": "0x1003e810",
+   "m18": "0x100253d0",
+   "paramName": "0x1003e8f0",
+   "paramDisplay": "0x1003e9e0"
+  }
+ },
+ {
+  "id": 95,
+  "name": "Gate",
+  "ctor": "1003eb50",
+  "vtable": "0x100a9a58",
+  "methods": {
+   "setSampleRate": "0x1003eb70",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003ec10",
+   "setParam": "0x1003f080",
+   "m18": "0x100253d0",
+   "paramName": "0x1003f1d0",
+   "paramDisplay": "0x1003f2c0"
+  }
+ },
+ {
+  "id": 100,
+  "name": "Distortion",
+  "ctor": "1003f330",
+  "vtable": "0x100a9a88",
+  "methods": {
+   "setSampleRate": "0x1003f360",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003f3d0",
+   "setParam": "0x1003f980",
+   "m18": "0x100253d0",
+   "paramName": "0x1003fae0",
+   "paramDisplay": "0x1003fba0"
+  }
+ },
+ {
+  "id": 101,
+  "name": "Overdrive",
+  "ctor": "1003fbf0",
+  "vtable": "0x100a9abc",
+  "methods": {
+   "setSampleRate": "0x1003fc20",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x1003fcc0",
+   "setParam": "0x10040200",
+   "m18": "0x100253d0",
+   "paramName": "0x100402b0",
+   "paramDisplay": "0x10040350"
+  }
+ },
+ {
+  "id": 102,
+  "name": "Bit Reduction",
+  "ctor": "10041040",
+  "vtable": "0x100a9b6c",
+  "methods": {
+   "setSampleRate": "0x10041060",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x100410e0",
+   "setParam": "0x100412c0",
+   "m18": "0x100253d0",
+   "paramName": "0x10041470",
+   "paramDisplay": "0x10041500"
+  }
+ },
+ {
+  "id": 103,
+  "name": "Amp Simulator",
+  "ctor": "10041620",
+  "vtable": "0x100a9bc8",
+  "methods": {
+   "setSampleRate": "0x10041680",
+   "tempo": "0x10041670",
+   "init": "0x10002170",
+   "process": "0x100418a0",
+   "setParam": "0x10041fe0",
+   "m18": "0x100253d0",
+   "paramName": "0x100425d0",
+   "paramDisplay": "0x100426d0"
+  }
+ },
+ {
+  "id": 104,
+  "name": "Tube Drive",
+  "ctor": "100406d0",
+  "vtable": "0x100a9b1c",
+  "methods": {
+   "setSampleRate": "0x10040720",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x100407c0",
+   "setParam": "0x10040da0",
+   "m18": "0x100253d0",
+   "paramName": "0x10040ea0",
+   "paramDisplay": "0x10040fc0"
+  }
+ },
+ {
+  "id": 105,
+  "name": "Waveshaper",
+  "ctor": "10040390",
+  "vtable": "0x100a9ae4",
+  "methods": {
+   "setSampleRate": "0x100403c0",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10040430",
+   "setParam": "0x10040570",
+   "m18": "0x100253d0",
+   "paramName": "0x10040630",
+   "paramDisplay": "0x10032d10"
+  }
+ },
+ {
+  "id": 110,
+  "name": "Modulate L/R",
+  "ctor": "100428e0",
+  "vtable": "0x100a9c84",
+  "methods": {
+   "setSampleRate": "0x10042910",
+   "tempo": "0x1000ca60",
+   "init": "0x10002170",
+   "process": "0x10042990",
+   "setParam": "0x100433e0",
+   "m18": "0x100253d0",
+   "paramName": "0x10043560",
+   "paramDisplay": "0x10043640"
+  }
+ }
+]

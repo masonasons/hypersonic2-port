@@ -1,0 +1,8 @@
+add_executable(hs2render hs2render.cpp)
+target_link_libraries(hs2render PRIVATE hs2core)
+add_executable(fxtest fxtest.cpp)
+target_link_libraries(fxtest PRIVATE hs2core)
+if(MINGW)
+  target_link_options(hs2render PRIVATE -static)
+  target_link_options(fxtest PRIVATE -static)
+endif()
