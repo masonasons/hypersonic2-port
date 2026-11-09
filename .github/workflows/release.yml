@@ -93,6 +93,16 @@ jobs:
           security find-identity -v -p codesigning | grep -q "Developer ID Application" ||
             { echo "::error::No Developer ID Application identity after the import."; exit 1; }
 
+      # The build folder of the latest run (JUCE's download and juceaide, and the compiled code). The key leaves out
+      # plugin/CMakeLists.txt so a version bump keeps the cache; JUCE's modules still compile again then, since JUCE
+      # passes the version to them as a compiler define. A new JUCE version or patch starts clean.
+      - name: Cache the build folder
+        uses: actions/cache@v4
+        with:
+          path: build_dist_mac
+          key: build-mac-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-mac.sh') }}-${{ github.run_id }}
+          restore-keys: build-mac-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-mac.sh') }}-
+
       - name: Build, sign, notarize and zip
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -118,6 +128,14 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+
+      # As on Mac.
+      - name: Cache the build folder
+        uses: actions/cache@v4
+        with:
+          path: build_dist_win
+          key: build-windows-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-windows.ps1') }}-${{ github.run_id }}
+          restore-keys: build-windows-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-windows.ps1') }}-
 
       - name: Build and zip
         shell: pwsh
