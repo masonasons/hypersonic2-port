@@ -1047,3 +1047,13 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   stores 0x94 != 0.5, so only CC 5 changes anything. combi_oracle vs hs2render on 35/10 with CC5 alone, CC65 + CC5,
   CC126 + CC65 + CC5 and the file's full lead set-up (CC65, CC126, CC5 = 86 / 0, RPN 0 = 2, CC84): all identical
   (were 2.5..3 dB apart). Slots 10 and 12..15 are only ever 0 in the original (reset writes only).
+- **NVDA and the patch list; ASIO and accessible audio settings (2026-11-08, after looking at OnjLouis/
+  sound-canvas-bridge, MIT).** Patch list: JUCE focuses the ListBox container, so NVDA sometimes reads only "list";
+  `PatchListBox` now hands the accessibility focus to the selected row's handler (table interface getRowHandler ->
+  grabFocus) after focusGained (callAsync) and on every selection change, Windows only. ASIO: `HS2_ASIO_SDK_DIR`
+  (default C:/programs/asiosdk/ASIOSDK, ASIO SDK 2.3.4 downloaded from steinberg.net, not in git) turns on
+  JUCE_ASIO=1 for the plugin's shared code. `AudioSettings.cpp`: "Audio and MIDI settings" window for the standalone
+  app (Settings button, shown when `StandalonePluginHolder::getInstance()` exists): driver, output device, sample rate,
+  buffer, refresh, driver control panel, MIDI input check boxes, status text; saves through
+  `StandalonePluginHolder::saveAudioDeviceState`. Built; the window and the list change still need a screen-reader
+  check by the user (the UIA test cannot take the foreground while the user works).

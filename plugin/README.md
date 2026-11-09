@@ -24,6 +24,8 @@ cmake -S . -B build_plugin -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPI
 cmake --build build_plugin --target HS2Port_VST3 HS2Port_Standalone hs2plughost
 ```
 
+ASIO (standalone app): CMake looks for Steinberg's ASIO SDK at `HS2_ASIO_SDK_DIR` (default `C:/programs/asiosdk/ASIOSDK`, the folder that contains `common/asio.h`; download from https://www.steinberg.net/asiosdk). When it is there, the build turns on JUCE's ASIO support; otherwise the app builds without ASIO. The SDK is not in this repository. Steinberg licenses it under its ASIO licence or GPLv3.
+
 Results are in `build_plugin/plugin/HS2Port_artefacts/Release/`:
 - `VST3/HS2 Port.vst3`
 - `Standalone/HS2 Port.exe`
@@ -78,7 +80,8 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
 4. **Part N Hyperknobs:** six sliders named after the patch's own knobs, for example "Hyperknob 4: Thump". Values are percentages.
 5. **Part N mixer:** Mute, Level, Pan, Effect send 1 to 4. Level and sends read as a percentage and in dB.
 6. **Master:** master volume in dB (all parts).
-7. **Settings:** content folder, "Choose content folder...", piano memory mode (ECO, MID or XXL), "Load patches and combis from MIDI program changes", "Let effect tails ring out", Keyboard help.
+7. **Settings:** content folder, "Choose content folder...", piano memory mode (ECO, MID or XXL), "Load patches and combis from MIDI program changes", "Let effect tails ring out", "Stop the old sound when a part's patch changes", "Audio and MIDI settings..." (standalone app only), Keyboard help.
+   - **Audio and MIDI settings** (standalone app): a window with Audio driver (ASIO on Windows when built with the ASIO SDK, Windows Audio, DirectSound; Core Audio on Mac), Output device, Sample rate, Buffer size (with its length in milliseconds), Refresh devices, Driver control panel (the ASIO driver's own settings), one "MIDI input: name" check box per MIDI input, a read-only Audio status box (device, rate, buffer, latency, errors) and Close. Changes apply at once and are saved; Escape closes the window.
 8. **Status:** a read-only text box with loading progress, errors, and features of the loaded patches that the port does not support yet.
 
 ### Keys

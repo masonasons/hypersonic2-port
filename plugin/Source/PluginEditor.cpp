@@ -1,5 +1,7 @@
 #include "PluginEditor.h"
 
+#include "AudioSettings.h"
+
 namespace hs2port {
 
 namespace {
@@ -57,6 +59,26 @@ std::unique_ptr<juce::AccessibilityHandler> Section::createAccessibilityHandler(
 }
 
 // ------------------------------------------------------------------------------------------------ PatchListBox
+
+void PatchListBox::focusSelectedRow() {
+#if JUCE_WINDOWS
+    if (auto* handler = getAccessibilityHandler())
+        if (auto* table = handler->getTableInterface())
+            if (const auto* row = table->getRowHandler(getSelectedRow()))
+                const_cast<juce::AccessibilityHandler*>(row)->grabFocus();
+#endif
+}
+
+void PatchListBox::focusGained(FocusChangeType cause) {
+    juce::ListBox::focusGained(cause);
+#if JUCE_WINDOWS
+    // after JUCE's own focus handling for the list container
+    juce::Component::SafePointer<PatchListBox> safe(this);
+    juce::MessageManager::callAsync([safe] {
+        if (safe != nullptr && safe->hasKeyboardFocus(true)) safe->focusSelectedRow();
+    });
+#endif
+}
 
 bool PatchListBox::keyPressed(const juce::KeyPress& key) {
     const auto mods = key.getModifiers();
@@ -275,8 +297,15 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
                               "previous patch (with a short fade). When off, they sound on until they end.");
     cutOnLoad_.setToggleState(proc_.cutOnLoad(), juce::dontSendNotification);
     cutOnLoad_.onClick = [this] { proc_.setCutOnLoad(cutOnLoad_.getToggleState()); };
+    if (standaloneAudioAvailable()) {  // the standalone app: its audio driver, device, buffer and MIDI inputs
+        settings_.addAndMakeVisible(audioSettings_);
+        audioSettings_.setExplicitFocusOrder(7);
+        audioSettings_.setDescription("Opens the audio driver (ASIO or Windows Audio), output device, sample rate, "
+                                      "buffer size and MIDI input settings of this standalone app.");
+        audioSettings_.onClick = [this] { showAudioMidiSettings(this); };
+    }
     settings_.addAndMakeVisible(help_);
-    help_.setExplicitFocusOrder(7);
+    help_.setExplicitFocusOrder(8);
     help_.setDescription("Lists the keyboard shortcuts. Shortcut F1.");
     help_.onClick = [this] { showKeyboardHelp(); };
 
@@ -416,6 +445,10 @@ void HS2Editor::resized() {
         row2.removeFromLeft(120);
         help_.setBounds(row2.removeFromRight(200));
         row2.removeFromRight(6);
+        if (audioSettings_.isVisible()) {
+            audioSettings_.setBounds(row2.removeFromRight(230));
+            row2.removeFromRight(6);
+        }
         memoryMode_.setBounds(row2.removeFromLeft(320));
         c.removeFromTop(8);
         midiPrograms_.setBounds(c.removeFromTop(30).withTrimmedLeft(120));
@@ -505,6 +538,7 @@ juce::String HS2Editor::getNameForRow(int row) {
 
 void HS2Editor::selectedRowsChanged(int lastRowSelected) {
     if (!suppressSelectionLoad_ && autoLoad_.getToggleState() && lastRowSelected >= 0) loadRow(lastRowSelected, false);
+    if (list_.hasKeyboardFocus(true)) list_.focusSelectedRow();
 }
 
 void HS2Editor::returnKeyPressed(int row) { loadRow(row, true); }

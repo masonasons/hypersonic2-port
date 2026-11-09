@@ -34,10 +34,15 @@ private:
 };
 
 // ListBox with type-ahead: typed letters jump to the next patch whose name starts with them.
+// Windows screen readers: JUCE gives the keyboard focus to the list itself, so NVDA sometimes announces only the list
+// and not the selected patch. The list hands the accessibility focus to the selected row (a named item) when it gets
+// the focus and when the selection changes (the technique of OnjLouis/sound-canvas-bridge, MIT licence).
 class PatchListBox : public juce::ListBox {
 public:
     std::function<juce::String(int)> rowName;
     bool keyPressed(const juce::KeyPress& key) override;
+    void focusGained(FocusChangeType cause) override;
+    void focusSelectedRow();
 
 private:
     juce::String prefix_;
@@ -132,6 +137,7 @@ private:
     juce::ToggleButton midiPrograms_{"Load patches and combis from MIDI program changes"};
     juce::ToggleButton ringOut_{"Let effect tails ring out"};
     juce::ToggleButton cutOnLoad_{"Stop the old sound when a part's patch changes"};
+    juce::TextButton audioSettings_{"Audio and MIDI settings..."};  // standalone app only
     juce::TextButton help_{"Keyboard help"};
 
     juce::TextEditor status_;

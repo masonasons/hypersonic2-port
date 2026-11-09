@@ -19,6 +19,7 @@ juce_add_plugin(HS2Port
     NEEDS_CURL FALSE)
 
 target_sources(HS2Port PRIVATE
+    Source/AudioSettings.cpp
     Source/PatchLibrary.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp)
@@ -28,6 +29,20 @@ target_compile_definitions(HS2Port PUBLIC
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
+
+# ASIO for the standalone app on Windows: needs Steinberg's ASIO SDK (https://www.steinberg.net/asiosdk, the folder
+# that holds common/asio.h). It is not part of this repository; without it the app has the Windows Audio drivers only.
+# The SDK is licensed under Steinberg's ASIO licence or GPLv3.
+if(WIN32)
+  set(HS2_ASIO_SDK_DIR "C:/programs/asiosdk/ASIOSDK" CACHE PATH "Steinberg ASIO SDK folder (contains common/asio.h)")
+  if(EXISTS "${HS2_ASIO_SDK_DIR}/common/asio.h")
+    target_compile_definitions(HS2Port PUBLIC JUCE_ASIO=1)
+    target_include_directories(HS2Port PRIVATE "${HS2_ASIO_SDK_DIR}/common")
+    message(STATUS "HS2: ASIO enabled (${HS2_ASIO_SDK_DIR})")
+  else()
+    message(STATUS "HS2: no ASIO SDK at HS2_ASIO_SDK_DIR (${HS2_ASIO_SDK_DIR}); the standalone app has no ASIO")
+  endif()
+endif()
 
 target_link_libraries(HS2Port
     PRIVATE
