@@ -175,7 +175,13 @@ public:
     void setCutOnLoad(bool on) { cutOnLoad_ = on; }
     // "Hyperknob 1: Thump" (the loaded patch's own name for the knob, if it has one).
     juce::String knobName(int part, int k) const;
-    juce::String patchKnobName(int part, int k) const;  // the patch's own name, may be empty
+    juce::String patchKnobName(int part, int k) const;
+    // The value exposed parameter i had right after its patch, combi or setup loaded (what Delete on a slider returns
+    // to); the parameter's default before any load.
+    float loadedValue(int i) const {
+        const float v = loadedVal_[size_t(i)].load();
+        return std::isnan(v) ? exposed_[size_t(i)]->getDefaultValue() : v;
+    }  // the patch's own name, may be empty
     juce::String partSummary(int part) const;  // "Part 3: Analogy" / "Part 3: empty"
 
     // The part the editor works on (kept with the state, so the editor reopens on it).
@@ -243,6 +249,7 @@ private:
     std::array<std::atomic<float>, kNumExposed> hostSeen_;   // the host value the audio thread last handled
     std::array<std::atomic<float>, kNumExposed> echo_;       // a value the message thread pushed to the host
     std::array<std::atomic<bool>, kNumExposed> dirty_;       // engine changed: push engineVal_ to the host
+    std::array<std::atomic<float>, kNumExposed> loadedVal_;  // the value right after the last load (NaN: none yet)
     std::atomic<bool> anyDirty_{false};
     std::atomic<bool> resyncAll_{false};
     std::atomic<int> infoGeneration_{0};

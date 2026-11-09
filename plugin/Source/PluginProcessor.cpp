@@ -295,6 +295,7 @@ HS2Processor::HS2Processor()
         hostSeen_[size_t(i)] = exposed_[size_t(i)]->getValue();
         echo_[size_t(i)] = kNaN;
         dirty_[size_t(i)] = false;
+        loadedVal_[size_t(i)] = kNaN;
     }
     events_.reserve(kEventCapacity);
     interleaved_.assign(size_t(kChunkFrames) * 2, 0.f);
@@ -728,6 +729,8 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
             sp = Setup::Part();  // the combi's patch (if any) stays in this part
         }
     }
+    for (int i = 0; i < kNumExposed; ++i)  // before the saved values: what the patches and combi set
+        loadedVal_[size_t(i)] = eng.getParameter(engineIndex(i));
     for (int i = 0; i < kNumExposed; ++i)
         if (rb.valid[size_t(i)] && eng.getParameter(engineIndex(i)) != rb.values[size_t(i)])
             eng.setParameter(engineIndex(i), rb.values[size_t(i)]);
@@ -880,6 +883,12 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
         else if (c.kind == Command::loadPatch || c.kind == Command::clearPart) replay |= 1u << (c.part & 15);
     }
     cmdWork_.clear();
+    for (int p = 0; p < kNumParts; ++p)  // the loaded patches' own values (before the controllers replayed below)
+        if (replay >> p & 1)
+            for (int pp = 0; pp < kPartParams; ++pp) {
+                const int i = exposedIndex(p, pp);
+                loadedVal_[size_t(i)] = eng.getParameter(engineIndex(i));
+            }
 
     syncParameters(eng);
 

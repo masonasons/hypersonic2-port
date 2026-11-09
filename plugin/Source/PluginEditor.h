@@ -49,6 +49,15 @@ private:
     juce::uint32 lastKeyTime_ = 0;
 };
 
+// A slider with the keys the keyboard help lists. JUCE's slider handles only the arrow keys; this adds Page Up / Page
+// Down (a tenth of the range), Home / End (lowest / highest) and Delete or Backspace (back to defaultValue: the value
+// the part's patch loaded with). Keys with modifiers go on to the editor (Ctrl+Page Up / Down change the patch).
+class KeySlider : public juce::Slider {
+public:
+    std::function<double()> defaultValue;
+    bool keyPressed(const juce::KeyPress& key) override;
+};
+
 class HS2Editor : public juce::AudioProcessorEditor, private juce::ListBoxModel, private juce::Timer {
 public:
     explicit HS2Editor(HS2Processor&);
@@ -113,20 +122,20 @@ private:
     juce::TextEditor info_;
 
     // Hyperknobs and mixer of the selected part
-    std::array<juce::Slider, kNumKnobs> knobSliders_;
+    std::array<KeySlider, kNumKnobs> knobSliders_;
     std::array<juce::Label, kNumKnobs> knobLabels_;
     std::array<std::unique_ptr<juce::SliderParameterAttachment>, kNumKnobs> knobAttach_;
     juce::ToggleButton mute_{"Mute"};
     std::unique_ptr<juce::ButtonParameterAttachment> muteAttach_;
-    juce::Slider level_, pan_;
-    std::array<juce::Slider, kNumSends> sends_;
+    KeySlider level_, pan_;
+    std::array<KeySlider, kNumSends> sends_;
     juce::Label levelLabel_, panLabel_;
     std::array<juce::Label, kNumSends> sendLabels_;
     std::unique_ptr<juce::SliderParameterAttachment> levelAttach_, panAttach_;
     std::array<std::unique_ptr<juce::SliderParameterAttachment>, kNumSends> sendAttach_;
 
     // Master
-    juce::Slider masterVolume_;
+    KeySlider masterVolume_;
     juce::Label masterLabel_;
     std::unique_ptr<juce::SliderParameterAttachment> masterAttach_;
 

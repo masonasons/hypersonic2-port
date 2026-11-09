@@ -115,7 +115,8 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
 | Ctrl+L | Patch list. Type letters to jump to a patch; Enter loads it into the selected part (a combi into all parts). |
 | Ctrl+Page Down / Ctrl+Page Up | Next / previous patch in the list |
 | Ctrl+I | Patch information of the selected part |
-| Arrows, Page Up / Page Down, Home / End | Change the focused slider |
+| Arrows, Page Up / Page Down, Home / End | Change the focused slider (Page Up / Page Down: a tenth of the range; Home / End: lowest / highest) |
+| Delete or Backspace | Return the focused slider to the patch's own setting (the value it loaded with; Master: the default volume) |
 | F1 | Keyboard help |
 
 On a Mac, use Cmd instead of Ctrl.

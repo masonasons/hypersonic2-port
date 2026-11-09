@@ -33,8 +33,31 @@ void setupSlider(juce::Slider& s, int order, const juce::String& description) {
     s.setDescription(description);
 }
 
-const char* kSliderKeys = "Arrow keys change the value; Page Up and Page Down in larger steps.";
+const char* kSliderKeys = "Arrow keys change the value; Page Up and Page Down in larger steps; Home and End go to "
+                          "the lowest and highest value; Delete returns to the patch's own setting.";
 }  // namespace
+
+// ------------------------------------------------------------------------------------------------ KeySlider
+
+bool KeySlider::keyPressed(const juce::KeyPress& key) {
+    if (!key.getModifiers().isAnyModifierKeyDown()) {
+        const double lo = getMinimum(), hi = getMaximum();
+        const int code = key.getKeyCode();
+        double v = getValue();
+        bool handled = true;
+        if (code == juce::KeyPress::pageUpKey) v += (hi - lo) / 10.0;
+        else if (code == juce::KeyPress::pageDownKey) v -= (hi - lo) / 10.0;
+        else if (code == juce::KeyPress::homeKey) v = lo;
+        else if (code == juce::KeyPress::endKey) v = hi;
+        else if ((code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey) && defaultValue) v = defaultValue();
+        else handled = false;
+        if (handled) {
+            setValue(juce::jlimit(lo, hi, v), juce::sendNotificationSync);
+            return true;
+        }
+    }
+    return juce::Slider::keyPressed(key);
+}
 
 // ------------------------------------------------------------------------------------------------ Section
 
@@ -256,6 +279,7 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
     masterVolume_.setTitle("Master volume");
     master_.addAndMakeVisible(masterVolume_);
     masterAttach_ = std::make_unique<juce::SliderParameterAttachment>(proc_.exposed(0), masterVolume_);
+    masterVolume_.defaultValue = [this] { return double(proc_.loadedValue(0)); };
     setupLabel(masterLabel_, "Master volume", masterVolume_);
 
     // ---- Settings
@@ -504,6 +528,14 @@ void HS2Editor::selectPart(int p) {
         for (int k = 0; k < kNumSends; ++k)
             sendAttach_[size_t(k)] = std::make_unique<juce::SliderParameterAttachment>(
                 proc_.partParam(p, ppSend1 + k), sends_[size_t(k)]);
+        // Delete on a slider: back to the value the part's patch loaded with (slider value = parameter value 0..1)
+        auto reset = [this, p](KeySlider& s, int pp) {
+            s.defaultValue = [this, p, pp] { return double(proc_.loadedValue(exposedIndex(p, pp))); };
+        };
+        for (int k = 0; k < kNumKnobs; ++k) reset(knobSliders_[size_t(k)], ppKnob1 + k);
+        reset(level_, ppLevel);
+        reset(pan_, ppPan);
+        for (int k = 0; k < kNumSends; ++k) reset(sends_[size_t(k)], ppSend1 + k);
     }
     for (int k = 0; k < kNumKnobs; ++k) {
         const auto name = proc_.knobName(p, k);
@@ -844,7 +876,7 @@ void HS2Editor::showKeyboardHelp() {
         "into all parts.\n"
         "Ctrl+Page Down / Ctrl+Page Up: next / previous patch.\n"
         "Ctrl+I: information about the selected part's patch.\n"
-        "Sliders: arrow keys, Page Up / Page Down, Home / End.\n"
+        "Sliders: arrow keys, Page Up / Page Down, Home / End; Delete returns the slider to the patch's own setting.\n"
         "F1: this help.\n"
         "In REAPER, turn on \"Send all keyboard input to plug-in\" in the FX window's menu so these keys reach the "
         "plugin.";
