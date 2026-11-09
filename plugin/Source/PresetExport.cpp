@@ -369,8 +369,8 @@ bool kompleteKontrolInstalled() {
                              "/Applications/Native Instruments/Komplete Kontrol.app",
                              "/Applications/Komplete Kontrol.app"})
         if (juce::File(path).exists()) return true;
-    return juce::File::getSpecialLocation(juce::File::userApplicationsDirectory)
-        .getChildFile("Native Instruments/Komplete Kontrol/Komplete Kontrol.app")
+    return juce::File::getSpecialLocation(juce::File::userHomeDirectory)
+        .getChildFile("Applications/Native Instruments/Komplete Kontrol/Komplete Kontrol.app")
         .exists();
 #else
     return false;
