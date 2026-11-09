@@ -1078,3 +1078,11 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   two by .nksf and a combi by .nksf, loaded through JUCE's VST3 host (Steinberg's PresetFile::loadPreset):
   identical to hs2render. 2747 patches + 100 combis in about 20 s; 63 copy-protected patches skipped. Not yet tried
   in a DAW's preset browser, in Komplete Kontrol or with AU (Mac).
+- **Preset switching lag and Komplete Kontrol detection (user, 0.3.0 trial).** Measured with `hs2plughost
+  --switch-preset`: setPreset returns in 0.6 ms, the rebuild takes about 4 ms, the parameter push 1.4 ms. The lag was
+  the host: each patch change renamed the Hyperknob parameters and called updateHostDisplay(parameterInfoChanged), so
+  REAPER re-read about 2300 parameters (209 + JUCE's 16 x 130 MIDI CC parameters). Hyperknob parameter names are now
+  fixed ("Part 1 Hyperknob 4"); the patch's knob name leads the value text ("Thump, 50 %"); no parameter info update
+  on patch changes (user's choice). NKS presets are written only when Komplete Kontrol is installed
+  (`kompleteKontrolInstalled`: Windows HKLM\SOFTWARE\Native Instruments\Komplete Kontrol InstallDir with
+  Komplete Kontrol.exe, or Program Files\Native Instruments\Komplete Kontrol; Mac the app in /Applications).
