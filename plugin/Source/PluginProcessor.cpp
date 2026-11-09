@@ -149,21 +149,15 @@ public:
                                         })),
           owner_(owner), idx_(exposedIdx) {}
 
-    // Hyperknobs carry the loaded patch's own knob name, e.g. "Part 1 Hyperknob 4: Thump".
-    juce::String getName(int maximumStringLength) const override {
-        if (idx_ > 0) {
-            const int part = (idx_ - 1) / kPartParams, pp = (idx_ - 1) % kPartParams;
-            if (pp >= ppKnob1)
-                return ("Part " + juce::String(part + 1) + " " + owner_.knobName(part, pp - ppKnob1))
-                    .substring(0, maximumStringLength);
-        }
-        return juce::AudioParameterFloat::getName(maximumStringLength);
-    }
-
 private:
     HS2Processor& owner_;
     int idx_;
 };
+
+juce::String HS2Processor::patchKnobName(int part, int k) const {
+    std::lock_guard<std::mutex> lk(infoMu_);
+    return infos_[size_t(part)].knobNames[size_t(k)].trim();
+}
 
 juce::String HS2Processor::knobName(int part, int k) const {
     std::lock_guard<std::mutex> lk(infoMu_);
@@ -280,11 +274,21 @@ HS2Processor::HS2Processor()
                     pname + "Effect Send " + juce::String(k + 1), 0.f,
                     [](float v) { return v <= 0.f ? juce::String("off") : percent(v) + ", " + gainText(double(v) * v); },
                     pctParse));
+        // Hyperknob names stay fixed ("Part 1 Hyperknob 4"): a name that follows the patch makes the host re-read
+        // every parameter (about 2300 with JUCE's MIDI controller parameters) at each patch change, which made preset
+        // switching slow in REAPER. The patch's own knob name leads the value text instead: "Thump, 50 %".
         for (int k = 0; k < kNumKnobs; ++k)
             add(exposedIndex(part, ppKnob1 + k),
-                std::make_unique<EngineParameter>(*this, exposedIndex(part, ppKnob1 + k),
-                                                  pid + "knob" + juce::String(k + 1),
-                                                  pname + "Hyperknob " + juce::String(k + 1), 0.f, percent, pctParse));
+                std::make_unique<EngineParameter>(
+                    *this, exposedIndex(part, ppKnob1 + k), pid + "knob" + juce::String(k + 1),
+                    pname + "Hyperknob " + juce::String(k + 1), 0.f,
+                    [this, part, k](float v) {
+                        const auto n = patchKnobName(part, k);
+                        return n.isNotEmpty() ? n + ", " + percent(v) : percent(v);
+                    },
+                    [pctParse](const juce::String& t) {  // "Thump, 50 %" or "50 %"
+                        return pctParse(t.containsChar(',') ? t.fromLastOccurrenceOf(",", false, false) : t);
+                    }));
     }
     for (int i = 0; i < kNumExposed; ++i) {
         engineVal_[size_t(i)] = kNaN;
@@ -329,7 +333,7 @@ void HS2Processor::installPresets() {
     o.contentRoot = settings_->contentFolder();
     o.vst3Root = defaultVst3PresetFolder();
     o.auRoot = defaultAuPresetFolder();
-    o.nksRoot = defaultNksPresetFolder();
+    if (kompleteKontrolInstalled()) o.nksRoot = defaultNksPresetFolder();  // only with Komplete Kontrol installed
     presetCancel_ = false;
 
     class Job : public juce::Thread {
@@ -348,8 +352,11 @@ void HS2Processor::installPresets() {
             s << "Installed presets for " << r.patches << " patches and " << r.combis << " combis. VST3 presets: "
               << o_.vst3Root.getFullPathName() << ".";
             if (o_.auRoot != juce::File()) s << " Audio Unit presets: " << o_.auRoot.getFullPathName() << ".";
-            s << " Komplete Kontrol presets: " << o_.nksRoot.getFullPathName()
-              << " (in Komplete Kontrol they appear under User; rescan the plug-ins first if HS2 Port is new there).";
+            if (o_.nksRoot != juce::File())
+                s << " Komplete Kontrol presets: " << o_.nksRoot.getFullPathName()
+                  << " (in Komplete Kontrol they appear under User; rescan the plug-ins first if HS2 Port is new there).";
+            else
+                s << " Komplete Kontrol is not installed, so no Komplete Kontrol presets were written.";
             if (r.skippedProtected > 0)
                 s << " " << r.skippedProtected << " copy-protected patches were left out.";
             if (!r.errors.isEmpty()) s << " Problems: " << r.errors.joinIntoString("; ") << ".";
@@ -822,11 +829,6 @@ void HS2Processor::timerCallback() {
                     p->setValueNotifyingHost(v);
                 }
             }
-    const int gen = infoGeneration_.load();
-    if (gen != seenInfoGeneration_) {  // patch names changed: the Hyperknob parameter names follow
-        seenInfoGeneration_ = gen;
-        updateHostDisplay(ChangeDetails().withParameterInfoChanged(true));
-    }
 }
 
 // ---- audio

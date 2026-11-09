@@ -24,6 +24,9 @@
 // volume, pan and sends together with its program change); the plugin applies them to the new patch.
 // --preset FILE: a .vstpreset or .nksf (its PCHK chunk holds a .vstpreset) loaded through the VST3 host's preset
 // reader (Steinberg's PresetFile::loadPreset) instead of a program change; the output starts at block 0.
+// --switch-preset "FILE@seconds": loads another preset while playing (as a host's preset menu does), at that time
+// after the start; the message loop runs for 100 ms after it.
+// --dump-params prints the Part 1 Hyperknob parameters' names and value text at the end (what a host lists).
 // --state-attr sets an attribute of the plugin's own state XML (e.g. ringOut=0) in the --state-in state before it is
 // restored (inside the host's VST3PluginState wrapper: IComponent, base64, then the plugin's copyXmlToBinary block).
 // The play head reports 120 bpm, stopped, position 0, 4/4 (as hs2render --host "-1:120:0").
@@ -173,6 +176,25 @@ int main(int argc, char* argv[]) {
         }
         plugin->setStateInformation(mb.getData(), int(mb.getSize()));
     }
+    auto readPreset = [](const juce::String& path) {
+        juce::MemoryBlock mb;
+        juce::File(path).loadFileAsData(mb);
+        const auto* d = static_cast<const char*>(mb.getData());
+        if (mb.getSize() > 12 && std::memcmp(d, "RIFF", 4) == 0 && std::memcmp(d + 8, "NIKS", 4) == 0) {
+            juce::MemoryBlock vst;
+            for (size_t i = 12; i + 8 <= mb.getSize();) {
+                const auto n = size_t(juce::ByteOrder::littleEndianInt(d + i + 4));
+                if (std::memcmp(d + i, "PCHK", 4) == 0 && i + 8 + n <= mb.getSize() && n > 4) vst.append(d + i + 12, n - 4);
+                i += 8 + n + (n & 1);
+            }
+            return vst;
+        }
+        return mb;
+    };
+    const auto switchArg = opt("--switch-preset", {});
+    const juce::String switchFile = switchArg.upToLastOccurrenceOf("@", false, false);
+    const double switchAt = switchArg.fromLastOccurrenceOf("@", false, false).getDoubleValue();
+    bool switched = switchArg.isEmpty();
     if (presetIn.isNotEmpty()) {
         juce::MemoryBlock mb;
         juce::File(presetIn).loadFileAsData(mb);
@@ -266,6 +288,19 @@ int main(int argc, char* argv[]) {
             }
             knobDone = true;
         }
+        if (!switched && t >= start + int(switchAt * sr)) {
+            switched = true;
+            const auto mb = readPreset(switchFile);
+            const double t0 = juce::Time::getMillisecondCounterHiRes();
+            auto* client = plugin->getVST3Client();
+            if (client == nullptr || !client->setPreset(mb)) {
+                std::fprintf(stderr, "could not switch to %s%s", switchFile.toRawUTF8(), juce::newLine.getDefault());
+                return 1;
+            }
+            std::fprintf(stderr, "setPreset returned after %.2f ms%s", juce::Time::getMillisecondCounterHiRes() - t0,
+                         juce::newLine.getDefault());
+            juce::MessageManager::getInstance()->runDispatchLoopUntil(100);
+        }
         plugin->processBlock(buf, midi);
         if (!pcChannels.empty() && !restored && t == 0) {
             for (const auto& c : pcChannels) {
@@ -300,6 +335,11 @@ int main(int argc, char* argv[]) {
     writeWav(juce::File(opt("--out", "plughost.wav")), aligned, int(sr));
 
     if (pump) juce::MessageManager::getInstance()->runDispatchLoopUntil(50);
+    if (args.contains("--dump-params"))  // what a host's parameter list shows: names and value text (Hyperknobs only)
+        for (auto* p : plugin->getParameters())
+            if (p->getName(100).contains("Hyperknob") && p->getName(100).startsWith("Part 1 "))
+                std::printf("%s = %s%s", p->getName(100).toRawUTF8(), p->getCurrentValueAsText().toRawUTF8(),
+                            juce::newLine.getDefault());
     if (stateOut.isNotEmpty()) {
         juce::MemoryBlock mb;
         plugin->getStateInformation(mb);

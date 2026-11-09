@@ -1,7 +1,8 @@
 // hs2presets: writes the HS2 Port preset files for a Hypersonic 2 content folder (the same code as the plugin's
 // "Install presets..." button, PresetExport.h). Without --vst3 / --au / --nks it writes nothing.
 //   hs2presets --content "C:/Hypersonic 2 Content" [--vst3 DIR] [--au DIR] [--nks DIR] [--defaults]
-// --defaults uses the standard per-user folders of this platform (as the plugin does).
+// --defaults uses the standard per-user folders of this platform (as the plugin does; NKS only with Komplete Kontrol
+// installed).
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <cstdio>
@@ -27,7 +28,7 @@ int main(int argc, char* argv[]) {
     if (args.contains("--defaults")) {
         o.vst3Root = hs2port::defaultVst3PresetFolder();
         o.auRoot = hs2port::defaultAuPresetFolder();
-        o.nksRoot = hs2port::defaultNksPresetFolder();
+        if (hs2port::kompleteKontrolInstalled()) o.nksRoot = hs2port::defaultNksPresetFolder();
     }
     if (opt("--vst3").isNotEmpty()) o.vst3Root = juce::File(opt("--vst3"));
     if (opt("--au").isNotEmpty()) o.auRoot = juce::File(opt("--au"));

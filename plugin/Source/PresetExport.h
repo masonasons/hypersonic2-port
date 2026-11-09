@@ -47,6 +47,9 @@ PresetExportResult exportPresets(const PatchLibrary& library, const PresetExport
 juce::File defaultVst3PresetFolder();
 juce::File defaultAuPresetFolder();  // Mac only (empty elsewhere)
 juce::File defaultNksPresetFolder();
+// True when Komplete Kontrol is installed (Windows: its registry entry or program folder; Mac: the app). NKS presets
+// are written only then.
+bool kompleteKontrolInstalled();
 
 // The plugin's preset state for one patch in part 1, or for a combi (the state format of HS2Processor; the
 // "preset" attribute tells setStateInformation to keep the user's settings).

@@ -354,6 +354,29 @@ juce::File defaultNksPresetFolder() {
         .getChildFile("Native Instruments/User Content").getChildFile(kPluginName);
 }
 
+bool kompleteKontrolInstalled() {
+#if JUCE_WINDOWS
+    const auto dir = juce::WindowsRegistry::getValue(
+        "HKEY_LOCAL_MACHINE\\SOFTWARE\\Native Instruments\\Komplete Kontrol\\InstallDir");
+    if (dir.isNotEmpty() && juce::File::isAbsolutePath(dir) &&
+        juce::File(dir).getChildFile("Komplete Kontrol.exe").existsAsFile())
+        return true;
+    return juce::File::getSpecialLocation(juce::File::globalApplicationsDirectory)
+        .getChildFile("Native Instruments\\Komplete Kontrol\\Komplete Kontrol.exe")
+        .existsAsFile();
+#elif JUCE_MAC
+    for (const auto* path : {"/Applications/Native Instruments/Komplete Kontrol/Komplete Kontrol.app",
+                             "/Applications/Native Instruments/Komplete Kontrol.app",
+                             "/Applications/Komplete Kontrol.app"})
+        if (juce::File(path).exists()) return true;
+    return juce::File::getSpecialLocation(juce::File::userApplicationsDirectory)
+        .getChildFile("Native Instruments/Komplete Kontrol/Komplete Kontrol.app")
+        .exists();
+#else
+    return false;
+#endif
+}
+
 PresetExportResult exportPresets(const PatchLibrary& library, const PresetExportOptions& options,
                                  const std::function<void(int, int)>& progress, const std::atomic<bool>* cancel) {
     PresetExportResult result;

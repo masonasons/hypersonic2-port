@@ -73,6 +73,7 @@ The folder choice and the piano memory mode are saved in the user settings file 
 | Audio Unit (`.aupreset`) | - | `~/Library/Audio/Presets/HS2 Port/HS2 Port/` |
 | Komplete Kontrol (`.nksf`) | `Documents\Native Instruments\User Content\HS2 Port\` | `~/Documents/Native Instruments/User Content/HS2 Port/` |
 
+- Komplete Kontrol presets are written only when Komplete Kontrol is installed (Windows: its registry entry or `C:\Program Files\Native Instruments\Komplete Kontrol`; Mac: the app in `/Applications`).
 - Folders: `Patches/<bank>/` and `Combis/<bank>/`.
 - A patch preset loads the patch into part 1 and empties the other parts; a combi preset loads the combi. The Settings choices, the selected part and the master volume stay as they are.
 - Running it again replaces only the files it wrote before (a `.hs2port-presets.json` receipt lists them); presets saved there by hand are kept.
@@ -129,7 +130,7 @@ In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so tha
   - Status is a text box.
   - When an action the user asked for fails, focus moves to the Status box, so the error is read.
 - **Focus never sits on an unusable component.** If the window has focus but no control does, focus goes to the search box. Inside a DAW this only happens while the plugin's own window has focus, so the plugin never takes focus from the DAW.
-- **Readable by host generic UIs.** The master volume and, for each part, Mute, Level, Pan, the four effect sends and the six Hyperknobs are host parameters with names and value text ("Part 3 Level", "Part 3 Hyperknob 4: Thump"), so a host's generic UI or OSARA's parameter list can read them too. The Hyperknob names follow the loaded patches.
+- **Readable by host generic UIs.** The master volume and, for each part, Mute, Level, Pan, the four effect sends and the six Hyperknobs are host parameters with names and value text ("Part 3 Level", "Part 3 Hyperknob 4"), so a host's generic UI or OSARA's parameter list can read them too. The Hyperknob names follow the loaded patches.
 
 ## How it works
 

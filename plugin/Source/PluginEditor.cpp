@@ -812,7 +812,11 @@ void HS2Editor::confirmInstallPresets() {
         << "VST3 presets: " << defaultVst3PresetFolder().getFullPathName() << "\n";
     if (defaultAuPresetFolder() != juce::File())
         msg << "Audio Unit presets: " << defaultAuPresetFolder().getFullPathName() << "\n";
-    msg << "Komplete Kontrol presets: " << defaultNksPresetFolder().getFullPathName() << "\n\n"
+    if (kompleteKontrolInstalled())
+        msg << "Komplete Kontrol presets: " << defaultNksPresetFolder().getFullPathName() << "\n";
+    else
+        msg << "Komplete Kontrol is not installed, so no Komplete Kontrol presets are written.\n";
+    msg << "\n"
         << "Presets installed here before are replaced; presets you saved yourself are kept. Copy-protected patches "
            "are left out. Progress and the result appear in the Status box.";
     const auto options = juce::MessageBoxOptions()
