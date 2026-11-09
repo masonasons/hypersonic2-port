@@ -16,21 +16,31 @@ $stage = "$root\dist\$name"
 $zip = "$root\dist\$name.zip"
 $art = "$build\plugin\HS2Port_artefacts\Release"
 
-# Visual Studio x64 build environment (cl, ninja, cmake from vcvars64.bat).
-$vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-if (-not (Test-Path $vswhere)) { throw "Visual Studio not found (no vswhere.exe)" }
-$vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-if (-not $vs) { throw "Visual Studio with the C++ x64 tools not found" }
-$vcvars = "$vs\VC\Auxiliary\Build\vcvars64.bat"
-cmd /c "`"$vcvars`" >nul && set" | ForEach-Object {
-    if ($_ -match '^([^=]+)=(.*)$') { Set-Item -Path "env:$($Matches[1])" -Value $Matches[2] }
+# Visual Studio x64 build environment (cl, ninja, cmake from vcvars64.bat), unless it is set up already (a developer
+# prompt). The environment comes from a small batch file, which avoids cmd's quoting rules for paths with spaces.
+if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (-not (Test-Path $vswhere)) { throw "Visual Studio not found (no vswhere.exe)" }
+    $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if (-not $vs) { throw "Visual Studio with the C++ x64 tools not found" }
+    $envBat = Join-Path ([System.IO.Path]::GetTempPath()) "hs2-vcvars-$PID.cmd"
+    "@call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul`r`n@set" | Set-Content -Encoding ASCII $envBat
+    cmd /c $envBat | ForEach-Object {
+        if ($_ -match '^([^=]+)=(.*)$') { Set-Item -Path "env:$($Matches[1])" -Value $Matches[2] }
+    }
+    Remove-Item $envBat
+    if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) { throw "vcvars64.bat did not set up the compiler" }
 }
 
 Write-Host "== HS2 Port $version for Windows"
 function Check($what) { if ($LASTEXITCODE -ne 0) { throw "$what failed (exit code $LASTEXITCODE)" } }
-cmake -S $root -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -DHS2_BUILD_PLUGIN=ON
+if (Get-Command ninja.exe -ErrorAction SilentlyContinue) {
+    cmake -S $root -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -DHS2_BUILD_PLUGIN=ON
+} else {  # no Ninja: CMake's default, the newest Visual Studio generator (same artefact folders, Release configuration)
+    cmake -S $root -B $build -A x64 -DHS2_BUILD_PLUGIN=ON
+}
 Check 'CMake configure'
-cmake --build $build --target HS2Port_VST3 HS2Port_Standalone
+cmake --build $build --config Release --parallel --target HS2Port_VST3 HS2Port_Standalone
 Check 'Build'
 
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
