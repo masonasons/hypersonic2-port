@@ -34,17 +34,39 @@ target_compile_definitions(HS2Port PUBLIC
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0)
 
-# ASIO for the standalone app on Windows: needs Steinberg's ASIO SDK (https://www.steinberg.net/asiosdk, the folder
-# that holds common/asio.h). It is not part of this repository; without it the app has the Windows Audio drivers only.
+# ASIO for the standalone app on Windows: needs Steinberg's ASIO SDK (the folder that contains common/asio.h). It is
+# not part of this repository. HS2_ASIO_SDK_DIR points at a local copy; when there is none, CMake downloads ASIO SDK
+# 2.3.4 from Steinberg during configure (pinned by its SHA-256), as it does with JUCE. HS2_REQUIRE_ASIO=ON (the
+# Windows dist script, CI) stops the configure when ASIO cannot be enabled, so a release never loses it silently.
 # The SDK is licensed under Steinberg's ASIO licence or GPLv3.
 if(WIN32)
+  option(HS2_ASIO "ASIO in the standalone app (the ASIO SDK is downloaded when HS2_ASIO_SDK_DIR has none)" ON)
+  option(HS2_REQUIRE_ASIO "Stop the configure when ASIO cannot be enabled" OFF)
   set(HS2_ASIO_SDK_DIR "C:/programs/asiosdk/ASIOSDK" CACHE PATH "Steinberg ASIO SDK folder (contains common/asio.h)")
-  if(EXISTS "${HS2_ASIO_SDK_DIR}/common/asio.h")
+  set(hs2_asio_dir "")
+  if(HS2_ASIO)
+    if(EXISTS "${HS2_ASIO_SDK_DIR}/common/asio.h")
+      set(hs2_asio_dir "${HS2_ASIO_SDK_DIR}")
+    else()
+      include(FetchContent)
+      FetchContent_Declare(asiosdk
+        URL https://download.steinberg.net/sdk_downloads/ASIO-SDK_2.3.4_2025-10-15.zip
+        URL_HASH SHA256=D5EBF0C20DD2C5F43771FD0C1418F4B361BF52434EE670097CFA6B3A335E2ECA
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+      FetchContent_MakeAvailable(asiosdk)  # no CMakeLists.txt in the SDK: download and unpack only
+      if(EXISTS "${asiosdk_SOURCE_DIR}/common/asio.h")
+        set(hs2_asio_dir "${asiosdk_SOURCE_DIR}")
+      endif()
+    endif()
+  endif()
+  if(hs2_asio_dir)
     target_compile_definitions(HS2Port PUBLIC JUCE_ASIO=1)
-    target_include_directories(HS2Port PRIVATE "${HS2_ASIO_SDK_DIR}/common")
-    message(STATUS "HS2: ASIO enabled (${HS2_ASIO_SDK_DIR})")
+    target_include_directories(HS2Port PRIVATE "${hs2_asio_dir}/common")
+    message(STATUS "HS2: ASIO enabled (${hs2_asio_dir})")
+  elseif(HS2_REQUIRE_ASIO)
+    message(FATAL_ERROR "HS2: ASIO is required (HS2_REQUIRE_ASIO) but the ASIO SDK is not available")
   else()
-    message(STATUS "HS2: no ASIO SDK at HS2_ASIO_SDK_DIR (${HS2_ASIO_SDK_DIR}); the standalone app has no ASIO")
+    message(STATUS "HS2: ASIO off; the standalone app has the Windows Audio drivers only")
   endif()
 endif()
 

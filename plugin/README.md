@@ -24,7 +24,7 @@ cmake -S . -B build_plugin -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPI
 cmake --build build_plugin --target HS2Port_VST3 HS2Port_Standalone hs2plughost
 ```
 
-ASIO (standalone app): CMake looks for Steinberg's ASIO SDK at `HS2_ASIO_SDK_DIR` (default `C:/programs/asiosdk/ASIOSDK`, the folder that contains `common/asio.h`; download from https://www.steinberg.net/asiosdk). When it is there, the build turns on JUCE's ASIO support; otherwise the app builds without ASIO. The SDK is not in this repository. Steinberg licenses it under its ASIO licence or GPLv3.
+ASIO (standalone app, Windows): CMake uses Steinberg's ASIO SDK from `HS2_ASIO_SDK_DIR` (default `C:/programs/asiosdk/ASIOSDK`, the folder that contains `common/asio.h`). When that folder has no SDK, CMake downloads ASIO SDK 2.3.4 from Steinberg during configure, checked against its SHA-256, the same way it gets JUCE; so CI builds have ASIO too. `-DHS2_ASIO=OFF` builds without ASIO; `-DHS2_REQUIRE_ASIO=ON` (used by `tools/dist/dist-windows.ps1`) stops the configure if ASIO cannot be enabled. The SDK is not in this repository; Steinberg licenses it under its ASIO licence or GPLv3.
 
 Results are in `build_plugin/plugin/HS2Port_artefacts/Release/`:
 - `VST3/HS2 Port.vst3`

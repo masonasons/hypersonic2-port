@@ -35,9 +35,9 @@ if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
 Write-Host "== HS2 Port $version for Windows"
 function Check($what) { if ($LASTEXITCODE -ne 0) { throw "$what failed (exit code $LASTEXITCODE)" } }
 if (Get-Command ninja.exe -ErrorAction SilentlyContinue) {
-    cmake -S $root -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -DHS2_BUILD_PLUGIN=ON
+    cmake -S $root -B $build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DCMAKE_C_COMPILER=cl -DHS2_BUILD_PLUGIN=ON -DHS2_REQUIRE_ASIO=ON
 } else {  # no Ninja: CMake's default, the newest Visual Studio generator (same artefact folders, Release configuration)
-    cmake -S $root -B $build -A x64 -DHS2_BUILD_PLUGIN=ON
+    cmake -S $root -B $build -A x64 -DHS2_BUILD_PLUGIN=ON -DHS2_REQUIRE_ASIO=ON
 }
 Check 'CMake configure'
 cmake --build $build --config Release --parallel --target HS2Port_VST3 HS2Port_Standalone
