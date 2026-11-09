@@ -4,8 +4,13 @@
 #include <memory>
 #include <set>
 
+#include <juce_audio_formats/juce_audio_formats.h>
+
 #include "PluginProcessor.h"  // exposedIndex, PartParam (the host parameter order)
 #include "hs2/bank.h"
+#include "hs2/combi.h"
+#include "hs2/content.h"
+#include "hs2/engine.h"
 #include "hs2/patch.h"
 
 namespace hs2port {
@@ -225,6 +230,171 @@ juce::MemoryBlock makeNksPreset(const PatchRef& ref, const hs2::Patch* patch, co
     return o.getMemoryBlock();
 }
 
+// ---- Komplete Kontrol previews
+
+constexpr double kPreviewRate = 44100.0;
+constexpr double kPreviewSeconds = 4.0;   // phrase (at most 2.75 s) and its tail
+constexpr double kPreviewFade = 0.4;      // fade-out at the end
+constexpr float kPreviewPeak = 0.7f;      // normalised to -3 dBFS ...
+constexpr float kPreviewMaxGain = 4.0f;   // ... with at most +12 dB
+
+struct PreviewNote { double start, length; int pitch, velocity; };
+
+// The phrase for a preset, chosen by its NKS sound type (nksTypes): 120 bpm eighth notes on MIDI channel 1.
+std::vector<PreviewNote> previewPhrase(const PatchRef& ref) {
+    juce::String type, sub;
+    if (const auto* t = nksTypes(ref).getArray(); t != nullptr && !t->isEmpty())
+        if (const auto* pair = (*t)[0].getArray(); pair != nullptr && pair->size() >= 2)
+            type = (*pair)[0].toString(), sub = (*pair)[1].toString();
+    std::vector<PreviewNote> n;
+    const double e = 0.25;  // an eighth note at 120 bpm
+    if (type == "Drums" && sub != "Loop") {  // a groove on the GM drum map (kick 36, snare 38, hats 42 / 46)
+        const int kick[] = {1, 0, 0, 0, 1, 1, 0, 0}, snare[] = {0, 0, 1, 0, 0, 0, 1, 0};
+        for (int s = 0; s < 8; ++s) {
+            if (kick[s]) n.push_back({s * e, 0.2, 36, 110});
+            if (snare[s]) n.push_back({s * e, 0.2, 38, 105});
+            n.push_back({s * e, 0.2, s == 7 ? 46 : 42, s % 2 == 0 ? 95 : 75});
+        }
+        n.push_back({8 * e, 0.5, 36, 110});
+        n.push_back({8 * e, 0.5, 49, 100});
+    } else if (type == "Bass") {
+        const int pitch[] = {36, 36, 43, 46, 48, 43};
+        const double len[] = {0.45, 0.2, 0.2, 0.45, 0.2, 0.2};
+        const double at[] = {0, 2, 3, 4, 6, 7};
+        for (int i = 0; i < 6; ++i) n.push_back({at[i] * e, len[i], pitch[i], 100});
+        n.push_back({8 * e, 0.75, 36, 100});
+    } else if (type == "Percussion" || type == "Mallet Instruments") {
+        const int pitch[] = {60, 62, 64, 65, 67, 65, 64, 62};
+        for (int i = 0; i < 8; ++i) n.push_back({i * e, 0.2, pitch[i], i % 2 == 0 ? 105 : 85});
+        n.push_back({8 * e, 0.6, 60, 105});
+    } else if (sub == "Loop" || type == "Sound Effects") {  // loops and effects run on one held key
+        n.push_back({0, 2.5, 60, 100});
+    } else {  // keys, pads, leads, combis ...: a rising C major arpeggio, then the chord with the bass note
+        const int arp[] = {60, 64, 67, 72};
+        for (int i = 0; i < 4; ++i) n.push_back({i * e, 0.24, arp[i], 95});
+        for (int p : {48, 60, 64, 67}) n.push_back({4 * e, 1.75, p, 95});
+    }
+    return n;
+}
+
+// Renders notes with the engine (stereo, kPreviewRate, `seconds` long) as the plugin plays the preset: part 1 holds
+// the patch (or the combi is loaded), effect tails ring out, the host transport runs at 120 bpm. Not normalised.
+juce::AudioBuffer<float> renderNotes(hs2::Content& content, const PatchRef& ref, const hs2::Patch* patch,
+                                     const std::vector<PreviewNote>& notes, double seconds) {
+    hs2::Engine eng(content, float(kPreviewRate));
+    eng.setRingOut(true);
+    if (ref.combi) {
+        const auto path = hs2::combiPath(content.root(), ref.bank, ref.index);
+        if (path.empty()) throw std::runtime_error("combi file not found");
+        eng.loadCombi(hs2::Combi::load(path));
+    } else {
+        if (patch == nullptr) throw std::runtime_error("patch not read");
+        eng.loadPatch(0, *patch, ref.bank);
+    }
+
+    struct Ev { juce::int64 frame; uint8_t status, d1, d2; };
+    std::vector<Ev> evs;
+    for (const auto& n : notes) {
+        evs.push_back({juce::int64(n.start * kPreviewRate), 0x90, uint8_t(n.pitch), uint8_t(n.velocity)});
+        evs.push_back({juce::int64((n.start + n.length) * kPreviewRate), 0x80, uint8_t(n.pitch), 0});
+    }
+    std::stable_sort(evs.begin(), evs.end(), [](const Ev& a, const Ev& b) { return a.frame < b.frame; });
+
+    constexpr int kBlock = 512;
+    const int total = int(seconds * kPreviewRate);
+    juce::AudioBuffer<float> out(2, total);
+    std::vector<float> lr(size_t(kBlock) * 2);
+    std::vector<hs2::MidiEvent> block;
+    hs2::HostTransport tr;
+    tr.playing = true;
+    // The loaded part is used from the next block: one silent block first.
+    std::fill(lr.begin(), lr.end(), 0.f);
+    eng.processBlock(lr.data(), kBlock, nullptr, 0, &tr);
+    size_t next = 0;
+    for (int pos = 0; pos < total; pos += kBlock) {
+        const int n = std::min(kBlock, total - pos);
+        block.clear();
+        for (; next < evs.size() && evs[next].frame < pos + n; ++next) {
+            hs2::MidiEvent m;
+            m.offset = int(std::max<juce::int64>(0, evs[next].frame - pos));
+            m.data[0] = evs[next].status;
+            m.data[1] = evs[next].d1;
+            m.data[2] = evs[next].d2;
+            block.push_back(m);
+        }
+        tr.ppq = (pos + kBlock) / kPreviewRate * 2.0;  // quarter notes at 120 bpm (after the silent block)
+        tr.barStart = std::floor(tr.ppq / 4.0) * 4.0;
+        std::fill(lr.begin(), lr.begin() + 2 * n, 0.f);
+        eng.processBlock(lr.data(), n, block.data(), int(block.size()), &tr);
+        for (int i = 0; i < n; ++i) {
+            out.setSample(0, pos + i, lr[size_t(2 * i)]);
+            out.setSample(1, pos + i, lr[size_t(2 * i + 1)]);
+        }
+    }
+    return out;
+}
+
+float rms(const juce::AudioBuffer<float>& b, int start, int n) {
+    n = std::min(n, b.getNumSamples() - start);
+    return n > 0 ? std::max(b.getRMSLevel(0, start, n), b.getRMSLevel(1, start, n)) : 0.f;
+}
+
+// For a preset that is silent with its phrase (drum "menus" and percussion mapped outside the phrase's keys): plays
+// every key from 21 to 108 briefly, one after the other, and makes a phrase of up to eight of the keys that sound.
+std::vector<PreviewNote> probePhrase(hs2::Content& content, const PatchRef& ref, const hs2::Patch* patch) {
+    constexpr double step = 0.05;
+    std::vector<PreviewNote> probe;
+    for (int k = 21; k <= 108; ++k) probe.push_back({(k - 21) * step, step * 0.8, k, 110});
+    const auto audio = renderNotes(content, ref, patch, probe, (108 - 21 + 1) * step + 0.5);
+    std::vector<std::pair<int, float>> level;  // key, onset level
+    float loudest = 0.f;
+    for (const auto& n : probe) {
+        const float l = rms(audio, int(n.start * kPreviewRate), int(step * kPreviewRate));
+        level.push_back({n.pitch, l});
+        loudest = std::max(loudest, l);
+    }
+    std::vector<int> keys;
+    for (const auto& [k, l] : level)
+        if (loudest > 1e-5f && l > loudest * 0.1f) keys.push_back(k);
+    std::vector<PreviewNote> phrase;
+    if (keys.empty()) return phrase;
+    const int count = std::min<int>(8, int(keys.size()));
+    for (int i = 0; i < count; ++i) {
+        const int k = keys[size_t(count == 1 ? 0 : i * (int(keys.size()) - 1) / (count - 1))];
+        phrase.push_back({i * 0.25, 0.2, k, i % 2 == 0 ? 110 : 90});
+    }
+    phrase.push_back({count * 0.25, 0.6, phrase.front().pitch, 110});
+    return phrase;
+}
+
+// The preview: the phrase for the preset's sound type (or, when that is silent, one on the keys that sound),
+// normalised and faded out.
+juce::AudioBuffer<float> renderPreview(hs2::Content& content, const PatchRef& ref, const hs2::Patch* patch) {
+    auto out = renderNotes(content, ref, patch, previewPhrase(ref), kPreviewSeconds);
+    const int total = out.getNumSamples();
+    if (rms(out, 0, total) < 1e-3f)
+        if (const auto phrase = probePhrase(content, ref, patch); !phrase.empty())
+            out = renderNotes(content, ref, patch, phrase, kPreviewSeconds);
+    const float peak = out.getMagnitude(0, total);
+    if (peak > 1e-6f) out.applyGain(std::min(kPreviewPeak / peak, kPreviewMaxGain));
+    const int fade = int(kPreviewFade * kPreviewRate);
+    out.applyGainRamp(total - fade, fade, 1.f, 0.f);
+    return out;
+}
+
+bool writeOgg(const juce::File& file, const juce::AudioBuffer<float>& audio) {
+    file.deleteFile();
+    std::unique_ptr<juce::OutputStream> stream = file.createOutputStream();
+    if (stream == nullptr) return false;
+    juce::OggVorbisAudioFormat ogg;
+    auto writer = ogg.createWriterFor(stream, juce::AudioFormatWriterOptions{}
+                                                  .withSampleRate(kPreviewRate)
+                                                  .withNumChannels(2)
+                                                  .withBitsPerSample(16)
+                                                  .withQualityOptionIndex(2));  // 96 kbps
+    return writer != nullptr && writer->writeFromAudioSampleBuffer(audio, 0, audio.getNumSamples());
+}
+
 // One output format: its root, the files written this time, and the receipt of the last run.
 struct Target {
     juce::File root;
@@ -253,7 +423,8 @@ struct Target {
                 const auto rel = f.toString();
                 if (rel.isEmpty() || rel.contains("..") || juce::File::isAbsolutePath(rel)) continue;
                 const auto file = root.getChildFile(rel);
-                if (file.isAChildOf(root) && file.hasFileExtension(extension)) {
+                const bool preview = file.getFileName().endsWithIgnoreCase(extension + ".ogg");  // .previews/x.nksf.ogg
+                if (file.isAChildOf(root) && (file.hasFileExtension(extension) || preview)) {
                     file.deleteFile();
                     dirs.insert(file.getParentDirectory());
                 }
@@ -393,6 +564,20 @@ PresetExportResult exportPresets(const PatchLibrary& library, const PresetExport
     }
 
     std::map<int, std::unique_ptr<hs2::MilanBank>> banks;  // patch banks opened so far (memory-mapped)
+    // Previews: the engine's sample cache keeps every sample bank it loads, so a new one is made per patch bank
+    // (and one for all combis) to keep memory down.
+    std::unique_ptr<hs2::Content> previewContent;
+    int previewContentKey = -1;
+    const auto contentFor = [&](const PatchRef& ref) -> hs2::Content& {
+        const int key = ref.combi ? 1000 : ref.bank;
+        if (previewContent == nullptr || key != previewContentKey) {
+            previewContent.reset();
+            previewContent = std::make_unique<hs2::Content>(
+                std::filesystem::path(options.contentRoot.getFullPathName().toWideCharPointer()));
+            previewContentKey = key;
+        }
+        return *previewContent;
+    };
     const int total = int(library.patches.size());
     for (int i = 0; i < total; ++i) {
         if (cancel != nullptr && cancel->load()) {
@@ -436,6 +621,25 @@ PresetExportResult exportPresets(const PatchLibrary& library, const PresetExport
             else {
                 const auto nks = makeNksPreset(ref, patch.get(), bank, vst);
                 ok = file.replaceWithData(nks.getData(), nks.getSize()) && ok;
+                if (ok && options.nksPreviews) {
+                    const auto dir = file.getParentDirectory().getChildFile(".previews");
+                    const auto ogg = dir.getChildFile(file.getFileName() + ".ogg");
+                    bool written = false;
+                    juce::String why;
+                    try {
+                        const auto audio = renderPreview(contentFor(ref), ref, patch.get());
+                        written = dir.createDirectory() && writeOgg(ogg, audio);
+                        if (!written) why = "cannot write " + ogg.getFullPathName();
+                    } catch (const std::exception& ex) {
+                        why = ex.what();
+                    }
+                    if (written) {
+                        ++result.previews;
+                        t.written.add(ogg.getRelativePathFrom(t.root).replaceCharacter('\\', '/'));
+                    } else if (++result.previewFailures <= 5) {
+                        result.errors.add("No preview for " + name + ": " + why);
+                    }
+                }
             }
             if (!ok) {
                 result.errors.add("Cannot write " + file.getFullPathName());

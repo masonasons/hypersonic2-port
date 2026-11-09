@@ -353,8 +353,9 @@ void HS2Processor::installPresets() {
               << o_.vst3Root.getFullPathName() << ".";
             if (o_.auRoot != juce::File()) s << " Audio Unit presets: " << o_.auRoot.getFullPathName() << ".";
             if (o_.nksRoot != juce::File())
-                s << " Komplete Kontrol presets: " << o_.nksRoot.getFullPathName()
-                  << " (in Komplete Kontrol they appear under User; rescan the plug-ins first if HS2 Port is new there).";
+                s << " Komplete Kontrol presets: " << o_.nksRoot.getFullPathName() << ", with " << r.previews
+                  << " sound previews (in Komplete Kontrol they appear under User; rescan the plug-ins first if HS2 Port"
+                  << " is new there).";
             else
                 s << " Komplete Kontrol is not installed, so no Komplete Kontrol presets were written.";
             if (r.skippedProtected > 0)

@@ -69,8 +69,9 @@ target_link_libraries(hs2plughost PRIVATE
     juce::juce_recommended_config_flags)
 
 # hs2presets: writes the preset files (PresetExport) without the plugin; for tests and scripts.
-#   hs2presets --content "C:/Hypersonic 2 Content" [--vst3 DIR] [--au DIR] [--nks DIR]
+#   hs2presets --content "C:/Hypersonic 2 Content" [--vst3 DIR] [--au DIR] [--nks DIR] [--no-previews]
 juce_add_console_app(hs2presets VERSION 0.1.0 PRODUCT_NAME "hs2presets")
 target_sources(hs2presets PRIVATE tools/hs2presets.cpp Source/PresetExport.cpp Source/PatchLibrary.cpp)
 target_compile_definitions(hs2presets PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_FORCE_USE_LEGACY_PARAM_IDS=1)
-target_link_libraries(hs2presets PRIVATE hs2core juce::juce_audio_processors juce::juce_recommended_config_flags)
+target_link_libraries(hs2presets PRIVATE hs2core juce::juce_audio_processors juce::juce_audio_formats
+    juce::juce_recommended_config_flags)

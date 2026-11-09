@@ -12,9 +12,11 @@
 //  * .nksf: a RIFF file of form type "NIKS" with the chunks NISI (preset metadata), NICA (knob pages), PLID (the
 //    plugin: its VST3 class ID as four 32-bit numbers) and PCHK (a complete .vstpreset); each chunk starts with the
 //    32-bit version 1, the first three are MessagePack maps.
+//    Each .nksf gets a preview, .previews/<file name>.nksf.ogg (Komplete Kontrol's browser plays it): the preset
+//    rendered by the engine (renderPreview), stereo 44.1 kHz Ogg Vorbis.
 //
-// Re-running replaces only the files this exporter wrote before (a receipt in each group folder lists them); presets
-// the user saved there are kept.
+// Re-running replaces only the files this exporter wrote before, previews included (a receipt in each group folder
+// lists them); presets the user saved there are kept.
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <atomic>
@@ -29,11 +31,15 @@ struct PresetExportOptions {
     juce::File vst3Root;     // .vstpreset files (empty: none)
     juce::File auRoot;       // .aupreset files (empty: none)
     juce::File nksRoot;      // .nksf files (empty: none)
+    // Komplete Kontrol previews: each .nksf gets .previews/<file name>.nksf.ogg, a few seconds of the patch rendered
+    // by the engine (a phrase that suits its sound type), as the browser plays them.
+    bool nksPreviews = true;
 };
 
 struct PresetExportResult {
     int patches = 0, combis = 0;   // presets written per format
     int skippedProtected = 0;      // copy-protected patches (not exported)
+    int previews = 0, previewFailures = 0;  // Komplete Kontrol previews written / not rendered
     juce::StringArray errors;
 };
 

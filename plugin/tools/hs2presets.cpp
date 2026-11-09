@@ -1,8 +1,8 @@
 // hs2presets: writes the HS2 Port preset files for a Hypersonic 2 content folder (the same code as the plugin's
 // "Install presets..." button, PresetExport.h). Without --vst3 / --au / --nks it writes nothing.
-//   hs2presets --content "C:/Hypersonic 2 Content" [--vst3 DIR] [--au DIR] [--nks DIR] [--defaults]
+//   hs2presets --content "C:/Hypersonic 2 Content" [--vst3 DIR] [--au DIR] [--nks DIR] [--defaults] [--no-previews]
 // --defaults uses the standard per-user folders of this platform (as the plugin does; NKS only with Komplete Kontrol
-// installed).
+// installed). --no-previews: NKS presets without their Komplete Kontrol previews (.previews/*.nksf.ogg).
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <cstdio>
@@ -20,7 +20,8 @@ int main(int argc, char* argv[]) {
     };
     const auto content = opt("--content");
     if (content.isEmpty()) {
-        std::puts("usage: hs2presets --content <Hypersonic 2 Content> [--vst3 DIR] [--au DIR] [--nks DIR] [--defaults]");
+        std::puts("usage: hs2presets --content <Hypersonic 2 Content> [--vst3 DIR] [--au DIR] [--nks DIR] [--defaults] "
+                  "[--no-previews]");
         return 2;
     }
     hs2port::PresetExportOptions o;
@@ -33,11 +34,13 @@ int main(int argc, char* argv[]) {
     if (opt("--vst3").isNotEmpty()) o.vst3Root = juce::File(opt("--vst3"));
     if (opt("--au").isNotEmpty()) o.auRoot = juce::File(opt("--au"));
     if (opt("--nks").isNotEmpty()) o.nksRoot = juce::File(opt("--nks"));
+    if (args.contains("--no-previews")) o.nksPreviews = false;
 
     const auto lib = hs2port::PatchLibrary::scan(std::filesystem::path(o.contentRoot.getFullPathName().toWideCharPointer()));
     for (const auto& e : lib.errors) std::fprintf(stderr, "library: %s\n", e.c_str());
     const auto r = hs2port::exportPresets(lib, o);
-    std::printf("patches %d, combis %d, copy-protected skipped %d\n", r.patches, r.combis, r.skippedProtected);
+    std::printf("patches %d, combis %d, copy-protected skipped %d, previews %d (%d failed)\n", r.patches, r.combis,
+                r.skippedProtected, r.previews, r.previewFailures);
     for (const auto& e : r.errors) std::fprintf(stderr, "error: %s\n", e.toRawUTF8());
     return r.errors.isEmpty() ? 0 : 1;
 }
