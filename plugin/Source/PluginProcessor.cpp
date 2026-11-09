@@ -481,7 +481,11 @@ bool HS2Processor::prepareCommand(const Request& req, hs2::Content& content, Com
                 if (mb->kind != 1) throw std::runtime_error("bank " + std::to_string(req.bank) + " is not a patch bank");
                 if (index < 0 || size_t(index) >= mb->entries.size() || mb->entries[size_t(index)].slot1.size == 0)
                     throw std::runtime_error("patch " + std::to_string(index + 1) + " does not exist in this bank");
-                auto patch = std::make_shared<hs2::Patch>(hs2::Patch::parse(mb->read(mb->entries[size_t(index)].slot1)));
+                const auto data = mb->read(mb->entries[size_t(index)].slot1);
+                if (isCopyProtectedPatch(data.data(), data.size()))
+                    throw std::runtime_error("it is a copy-protected Hypersonic 2 patch (Syncrosoft). The port cannot "
+                                             "load copy-protected patches");
+                auto patch = std::make_shared<hs2::Patch>(hs2::Patch::parse(data));
                 const auto warnings = warmUp(*patch);
                 if (info != nullptr) {
                     *info = makeInfo(*patch, req.bank, index, bankName, warnings);

@@ -1057,3 +1057,8 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   buffer, refresh, driver control panel, MIDI input check boxes, status text; saves through
   `StandalonePluginHolder::saveAudioDeviceState`. Built; the window and the list change still need a screen-reader
   check by the user (the UIA test cannot take the foreground while the user works).
+- **"not a StSS patch" (user report: 017 "Pick Bass New", 025 "Miami Brass").** 63 of the 2810 factory patches are
+  stored Syncrosoft copy-protected (slot 1 starts with "SyncrosoftContent"): the "New" HS-2 additions after the GM
+  patches in banks 008, 015, 017, 018, 024, 025, 031, 033, 034, 035. The original unlocks them with its licence. The
+  port does not decrypt them (copy protection, like the plugin state chunk). The plugin now marks them in the patch
+  list ("(copy-protected, cannot load)") and a load says why; the part keeps its patch. No factory combi is protected.

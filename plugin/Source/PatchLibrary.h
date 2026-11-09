@@ -1,6 +1,8 @@
 #pragma once
 // The list of patches in the user's Hypersonic 2 content folder, for the browser and MIDI program changes.
 // Only names are kept: a scan opens each patch bank once and reads its directory.
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -12,7 +14,16 @@ struct PatchRef {
     int index = -1;         // entry index inside the bank (MIDI program number)
     std::string name;       // patch name as stored in the bank directory (combis: from the file name)
     bool combi = false;     // a combi (a whole 16-part setup): bank 120 and up, index = the file's number prefix
+    // A Syncrosoft copy-protected patch (the stored data starts with "SyncrosoftContent" instead of "StSS"; 63 of
+    // the factory patches, the "New" HS-2 additions). The port cannot load these.
+    bool copyProtected = false;
 };
+
+// True for stored patch data that is Syncrosoft copy-protected.
+inline bool isCopyProtectedPatch(const uint8_t* data, size_t size) {
+    static const char kTag[] = "Syncrosoft";
+    return size >= sizeof(kTag) - 1 && std::memcmp(data, kTag, sizeof(kTag) - 1) == 0;
+}
 
 struct BankInfo {
     int number = -1;

@@ -57,6 +57,8 @@ PatchLibrary PatchLibrary::scan(const std::filesystem::path& root) {
                 r.index = int(i);  // position in the directory, as hs2render's --patch and MIDI program numbers
                 r.name = displayName(entry.name);
                 if (r.name.empty()) r.name = "Patch " + std::to_string(i + 1);
+                const auto data = mb->read(entry.slot1);
+                r.copyProtected = isCopyProtectedPatch(data.data(), data.size());
                 b.patches.push_back(int(lib.patches.size()));
                 lib.patches.push_back(std::move(r));
             }
