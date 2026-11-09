@@ -1,6 +1,7 @@
 #include "PluginEditor.h"
 
 #include "AudioSettings.h"
+#include "PresetExport.h"
 
 namespace hs2port {
 
@@ -297,15 +298,21 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
                               "previous patch (with a short fade). When off, they sound on until they end.");
     cutOnLoad_.setToggleState(proc_.cutOnLoad(), juce::dontSendNotification);
     cutOnLoad_.onClick = [this] { proc_.setCutOnLoad(cutOnLoad_.getToggleState()); };
+    settings_.addAndMakeVisible(installPresets_);
+    installPresets_.setExplicitFocusOrder(7);
+    installPresets_.setDescription("Writes a preset file for every patch and combi in your content folder, so you can "
+                                   "choose them in your DAW's preset browser and in Komplete Kontrol. Presets you saved "
+                                   "yourself are kept.");
+    installPresets_.onClick = [this] { confirmInstallPresets(); };
     if (standaloneAudioAvailable()) {  // the standalone app: its audio driver, device, buffer and MIDI inputs
         settings_.addAndMakeVisible(audioSettings_);
-        audioSettings_.setExplicitFocusOrder(7);
+        audioSettings_.setExplicitFocusOrder(8);
         audioSettings_.setDescription("Opens the audio driver (ASIO or Windows Audio), output device, sample rate, "
                                       "buffer size and MIDI input settings of this standalone app.");
         audioSettings_.onClick = [this] { showAudioMidiSettings(this); };
     }
     settings_.addAndMakeVisible(help_);
-    help_.setExplicitFocusOrder(8);
+    help_.setExplicitFocusOrder(9);
     help_.setDescription("Lists the keyboard shortcuts. Shortcut F1.");
     help_.onClick = [this] { showKeyboardHelp(); };
 
@@ -368,7 +375,7 @@ void HS2Editor::resized() {
     browser_.setBounds(all);
     auto statusArea = r.removeFromBottom(90);
     r.removeFromBottom(gap);
-    auto settingsArea = r.removeFromBottom(222);
+    auto settingsArea = r.removeFromBottom(258);
     r.removeFromBottom(gap);
     auto masterArea = r.removeFromBottom(64);
     r.removeFromBottom(gap);
@@ -456,6 +463,8 @@ void HS2Editor::resized() {
         ringOut_.setBounds(c.removeFromTop(30).withTrimmedLeft(120));
         c.removeFromTop(6);
         cutOnLoad_.setBounds(c.removeFromTop(30).withTrimmedLeft(120));
+        c.removeFromTop(6);
+        installPresets_.setBounds(c.removeFromTop(30).withTrimmedLeft(120).withWidth(230));
     }
     status_.setBounds(statusSection_.content());
 }
@@ -791,6 +800,34 @@ void HS2Editor::chooseContentFolder() {
                               safe->status_.setText("Scanning " + f.getFullPathName() + "...",
                                                     juce::dontSendNotification);
                           });
+}
+
+void HS2Editor::confirmInstallPresets() {
+    if (proc_.installingPresets()) {
+        status_.grabKeyboardFocus();
+        return;
+    }
+    juce::String msg;
+    msg << "This writes a preset for every patch and combi in your content folder.\n\n"
+        << "VST3 presets: " << defaultVst3PresetFolder().getFullPathName() << "\n";
+    if (defaultAuPresetFolder() != juce::File())
+        msg << "Audio Unit presets: " << defaultAuPresetFolder().getFullPathName() << "\n";
+    msg << "Komplete Kontrol presets: " << defaultNksPresetFolder().getFullPathName() << "\n\n"
+        << "Presets installed here before are replaced; presets you saved yourself are kept. Copy-protected patches "
+           "are left out. Progress and the result appear in the Status box.";
+    const auto options = juce::MessageBoxOptions()
+                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                             .withTitle("Install presets")
+                             .withMessage(msg)
+                             .withButton("Install", 1)
+                             .withButton("Cancel", 0)
+                             .withAssociatedComponent(this);
+    juce::Component::SafePointer<HS2Editor> safe(this);
+    juce::NativeMessageBox::showForOptionsAsync(options, [safe](int result) {
+        if (safe == nullptr || result != 1) return;
+        safe->proc_.installPresets();
+        safe->status_.grabKeyboardFocus();
+    });
 }
 
 void HS2Editor::showKeyboardHelp() {

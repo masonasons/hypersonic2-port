@@ -6,6 +6,7 @@
 #include <limits>
 
 #include "PluginEditor.h"
+#include "PresetExport.h"
 #include "hs2/bank.h"
 #include "hs2/patch.h"
 #include "hs2/synth.h"
@@ -312,7 +313,57 @@ HS2Processor::HS2Processor()
 
 HS2Processor::~HS2Processor() {
     stopTimer();
+    presetCancel_ = true;
+    if (presetJob_ != nullptr) presetJob_->stopThread(20000);
     loader_->stopThread(10000);
+}
+
+void HS2Processor::installPresets() {
+    if (installingPresets()) return;
+    const auto lib = library();
+    if (lib == nullptr || lib->patches.empty()) {
+        setStatus("The patch list is not ready yet, or the content folder has no patches. Presets were not installed.");
+        return;
+    }
+    PresetExportOptions o;
+    o.contentRoot = settings_->contentFolder();
+    o.vst3Root = defaultVst3PresetFolder();
+    o.auRoot = defaultAuPresetFolder();
+    o.nksRoot = defaultNksPresetFolder();
+    presetCancel_ = false;
+
+    class Job : public juce::Thread {
+    public:
+        Job(HS2Processor& owner, std::shared_ptr<const PatchLibrary> lib, PresetExportOptions o)
+            : juce::Thread("HS2 preset export"), owner_(owner), lib_(std::move(lib)), o_(std::move(o)) {}
+        void run() override {
+            owner_.setStatus("Installing presets...");
+            const auto r = exportPresets(
+                *lib_, o_,
+                [this](int done, int total) {
+                    owner_.setStatus("Installing presets: " + juce::String(done) + " of " + juce::String(total) + ".");
+                },
+                &owner_.presetCancel_);
+            juce::String s;
+            s << "Installed presets for " << r.patches << " patches and " << r.combis << " combis. VST3 presets: "
+              << o_.vst3Root.getFullPathName() << ".";
+            if (o_.auRoot != juce::File()) s << " Audio Unit presets: " << o_.auRoot.getFullPathName() << ".";
+            s << " Komplete Kontrol presets: " << o_.nksRoot.getFullPathName()
+              << " (in Komplete Kontrol they appear under User; rescan the plug-ins first if HS2 Port is new there).";
+            if (r.skippedProtected > 0)
+                s << " " << r.skippedProtected << " copy-protected patches were left out.";
+            if (!r.errors.isEmpty()) s << " Problems: " << r.errors.joinIntoString("; ") << ".";
+            owner_.setStatus(s);
+        }
+
+    private:
+        HS2Processor& owner_;
+        std::shared_ptr<const PatchLibrary> lib_;
+        PresetExportOptions o_;
+    };
+    if (presetJob_ != nullptr) presetJob_->stopThread(1000);
+    presetJob_ = std::make_unique<Job>(*this, lib, o);
+    presetJob_->startThread(juce::Thread::Priority::low);
 }
 
 bool HS2Processor::isBusesLayoutSupported(const BusesLayout& layouts) const {
@@ -1050,11 +1101,21 @@ void HS2Processor::setStateInformation(const void* data, int sizeInBytes) {
                 }
             }
         }
+    } else if (xml->hasAttribute("preset")) {
+        // A preset file (PresetExport: a patch in part 1, or a combi): only the parts change. The user's settings,
+        // selected part and master volume stay; the part's mixer and Hyperknobs come from the patch.
+        const auto cur = currentValues(nullptr);
+        if (!std::isnan(cur[0])) {
+            rb.values[0] = cur[0];
+            rb.valid[0] = true;
+        }
     } else {
         selectedPart = juce::jlimit(0, kNumParts - 1, xml->getIntAttribute("selectedPart", 0));
         midiProgramChanges_ = xml->getBoolAttribute("midiProgramChanges", true);
         ringOut_ = xml->getBoolAttribute("ringOut", true);
         cutOnLoad_ = xml->getBoolAttribute("cutOnLoad", true);
+    }
+    if (xml->getIntAttribute("stateVersion", 1) >= 2) {
         if (const auto* setup = xml->getChildByName("SETUP")) {
             rb.setup.combiBank = setup->getIntAttribute("combiBank", -1);
             rb.setup.combiIndex = setup->getIntAttribute("combiIndex", -1);

@@ -166,6 +166,10 @@ public:
     // Effect tails ring out (not in the original, which cuts some delay tails when the last note ends). Default on.
     bool ringOut() const { return ringOut_.load(); }
     void setRingOut(bool on) { ringOut_ = on; }
+    // Writes VST3 (and on the Mac AU) presets and Komplete Kontrol NKS presets for every loadable patch and combi of
+    // the content folder (PresetExport.h), on a background thread; progress and the result go to the status text.
+    void installPresets();
+    bool installingPresets() const { return presetJob_ != nullptr && presetJob_->isThreadRunning(); }
     // Loading a patch stops the part's previous patch (short fade) instead of letting it sound on. Default on.
     bool cutOnLoad() const { return cutOnLoad_.load(); }
     void setCutOnLoad(bool on) { cutOnLoad_ = on; }
@@ -277,6 +281,8 @@ private:
 
     // Loader state.
     std::unique_ptr<LoaderThread> loader_;
+    std::unique_ptr<juce::Thread> presetJob_;  // installPresets
+    std::atomic<bool> presetCancel_{false};
     std::mutex requestMu_;
     std::vector<Request> requests_;         // guarded by requestMu_
     std::unique_ptr<Rebuild> rebuild_;      // guarded by requestMu_

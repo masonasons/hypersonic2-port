@@ -1062,3 +1062,19 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   patches in banks 008, 015, 017, 018, 024, 025, 031, 033, 034, 035. The original unlocks them with its licence. The
   port does not decrypt them (copy protection, like the plugin state chunk). The plugin now marks them in the patch
   list ("(copy-protected, cannot load)") and a load says why; the part keeps its patch. No factory combi is protected.
+
+- **Presets for DAWs and Komplete Kontrol (2026-11-08).** `plugin/Source/PresetExport.cpp`, the Settings button
+  "Install presets..." and the tool `hs2presets`. Formats: .vstpreset (VST3 SDK preset file: "VST3", version 1, the
+  class ID ABCDEF019182FAEB4873327048733250, list offset, a "Comp" chunk = the plugin state, chunk list), .aupreset
+  (plist with type/subtype/manufacturer/version/name and the state under "jucePluginState", JUCE's AU key) and .nksf.
+  NKS layout, learned from a VST3 NKS preset of OnjLouis/sound-canvas-bridge on this machine (decoded only): RIFF form
+  "NIKS"; chunks NISI, NICA, PLID, PCHK, each starting with the 32-bit LE version 1; NISI/NICA/PLID are MessagePack
+  maps; NISI {author, bankchain [product, bank, ""], characters, comment, deviceType "INST", name, types [[type, sub]],
+  uuid, vendor}; NICA {"ni8": pages of 8 {autoname, id, name, vflag[, section]}}; PLID {"VST.magic": 0, "VST3.uid":
+  the class ID as four 32-bit numbers, pluginName, pluginVendor}; PCHK = version + a complete .vstpreset. Knob ids are
+  host parameter ids; the plugin now uses JUCE legacy parameter ids (id = index) so that both readings agree.
+  The preset state carries a "preset" attribute: setStateInformation then keeps the settings, the selected part and
+  the master volume. Re-runs remove only the files of the previous run's receipt. Test 10: two patches by .vstpreset,
+  two by .nksf and a combi by .nksf, loaded through JUCE's VST3 host (Steinberg's PresetFile::loadPreset):
+  identical to hs2render. 2747 patches + 100 combis in about 20 s; 63 copy-protected patches skipped. Not yet tried
+  in a DAW's preset browser, in Komplete Kontrol or with AU (Mac).

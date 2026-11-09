@@ -205,4 +205,35 @@ ok = np.abs(a[:22050]).max() > 1e-3 and np.abs(a[after]).max() < 1e-4 < np.abs(b
 bad += not ok
 print(f'load while a note sounds: after the load, peak with cut-on-load {np.abs(a[after]).max():.3g}, without '
       f'{np.abs(b[after]).max():.3g}  {"OK" if ok else "UNEXPECTED"}')
+# 10. Presets (PresetExport via hs2presets): .vstpreset and .nksf files load through the VST3 host's preset reader
+# (Steinberg's PresetFile::loadPreset) and play exactly what the patch / combi plays when loaded directly.
+PRESETS = os.path.join(r'C:\stuff\Hypersonic 2', 'build_plugin', 'plugin', 'hs2presets_artefacts', 'Release',
+                       'hs2presets.exe')
+run([PRESETS, '--content', r'C:\Hypersonic 2 Content', '--vst3', f('presets_vst3'), '--nks', f('presets_nks')])
+
+
+def preset_file(root, ext, combi, bank, patch):
+    # the preset whose state names this bank / patch (its XML is plain text inside the file)
+    key = (f'combiBank="{bank}" combiIndex="{patch}"' if combi else f'bank="{bank}" patch="{patch}"').encode()
+    for d, _, files in os.walk(root):
+        for n in files:
+            if n.endswith(ext) and key in open(os.path.join(d, n), 'rb').read():
+                return os.path.join(d, n)
+    raise SystemExit(f'no preset for {bank}/{patch}')
+
+
+for ext, root in (('.vstpreset', f('presets_vst3')), ('.nksf', f('presets_nks'))):
+    for b, p in ([(39, 2), (15, 23)] if ext == '.vstpreset' else [(82, 0), (3, 65)]):
+        tag = f'preset_{ext[1:]}_{b}_{p}'
+        run([HOST, VST, '--preset', preset_file(root, ext, False, b, p), '--notes', NOTES] + COMMON +
+            ['--out', f(tag + '.wav')])
+        run([REN, '--part', f'1:{b}:{p}', '--load-bank', '--notes', NOTES] + RO + COMMON +
+            ['--host', '-1:120:0', '--block', '32', '--out', f(tag + '_ref.wav')])
+        compare(f'{b}/{p} from its {ext} preset', f(tag + '.wav'), f(tag + '_ref.wav'))
+run([HOST, VST, '--preset', preset_file(f('presets_nks'), '.nksf', True, 120, 22), '--notes', NC] + COMMON +
+    ['--out', f('preset_combi.wav')])
+run([REN, '--combi', combi_file(22), '--notes', NC] + RO + COMMON +
+    ['--host', '-1:120:0', '--block', '32', '--out', f('preset_combi_ref.wav')])
+compare('combi 120/22 from its .nksf preset', f('preset_combi.wav'), f('preset_combi_ref.wav'))
+
 sys.exit(1 if bad else 0)

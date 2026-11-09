@@ -80,6 +80,7 @@ private:
     void stepPatch(int delta);
     void chooseContentFolder();
     void showKeyboardHelp();
+    void confirmInstallPresets();
     void showError(const juce::String& text);  // status text + focus there, for failures of user actions
     juce::String infoText(int part, const PatchInfo& inf) const;
     juce::String rowText(int row) const;
@@ -138,6 +139,7 @@ private:
     juce::ToggleButton ringOut_{"Let effect tails ring out"};
     juce::ToggleButton cutOnLoad_{"Stop the old sound when a part's patch changes"};
     juce::TextButton audioSettings_{"Audio and MIDI settings..."};  // standalone app only
+    juce::TextButton installPresets_{"Install presets..."};
     juce::TextButton help_{"Keyboard help"};
 
     juce::TextEditor status_;

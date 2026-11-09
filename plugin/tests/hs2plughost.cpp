@@ -22,12 +22,15 @@
 // the end of block 1 and the patches start at block 2 (as --pc-param).
 // --init-cc "cc=value,...": controllers on channel C in block 0, right after the program change (as a MIDI file sends
 // volume, pan and sends together with its program change); the plugin applies them to the new patch.
+// --preset FILE: a .vstpreset or .nksf (its PCHK chunk holds a .vstpreset) loaded through the VST3 host's preset
+// reader (Steinberg's PresetFile::loadPreset) instead of a program change; the output starts at block 0.
 // --state-attr sets an attribute of the plugin's own state XML (e.g. ringOut=0) in the --state-in state before it is
 // restored (inside the host's VST3PluginState wrapper: IComponent, base64, then the plugin's copyXmlToBinary block).
 // The play head reports 120 bpm, stopped, position 0, 4/4 (as hs2render --host "-1:120:0").
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <vector>
 
@@ -121,6 +124,8 @@ int main(int argc, char* argv[]) {
                  tail = opt("--tail", "1").getDoubleValue();
     const int block = opt("--block", "32").getIntValue();
     const juce::String stateIn = opt("--state-in", {}), stateOut = opt("--state-out", {});
+    const juce::String presetIn = opt("--preset", {});
+    const bool restored = stateIn.isNotEmpty() || presetIn.isNotEmpty();  // no program change: output from block 0
     const bool pump = !args.contains("--no-pump");
     const bool pcParam = args.contains("--pc-param");
     struct ChannelPc { int ch, bank, prog; };
@@ -168,9 +173,28 @@ int main(int argc, char* argv[]) {
         }
         plugin->setStateInformation(mb.getData(), int(mb.getSize()));
     }
+    if (presetIn.isNotEmpty()) {
+        juce::MemoryBlock mb;
+        juce::File(presetIn).loadFileAsData(mb);
+        const auto* d = static_cast<const char*>(mb.getData());
+        if (mb.getSize() > 12 && std::memcmp(d, "RIFF", 4) == 0 && std::memcmp(d + 8, "NIKS", 4) == 0) {
+            juce::MemoryBlock vst;  // NKS: the PCHK chunk is version (4 bytes) + a .vstpreset
+            for (size_t i = 12; i + 8 <= mb.getSize();) {
+                const auto n = size_t(juce::ByteOrder::littleEndianInt(d + i + 4));
+                if (std::memcmp(d + i, "PCHK", 4) == 0 && i + 8 + n <= mb.getSize() && n > 4) vst.append(d + i + 12, n - 4);
+                i += 8 + n + (n & 1);
+            }
+            mb = vst;
+        }
+        auto* client = plugin->getVST3Client();
+        if (client == nullptr || mb.isEmpty() || !client->setPreset(mb)) {
+            std::fprintf(stderr, "could not load the preset %s%s", presetIn.toRawUTF8(), juce::newLine.getDefault());
+            return 1;
+        }
+    }
     plugin->prepareToPlay(sr, block);
 
-    const int start = stateIn.isNotEmpty() ? 0 : (pcParam || !pcChannels.empty()) ? 2 * block : block;  // patch start
+    const int start = restored ? 0 : (pcParam || !pcChannels.empty()) ? 2 * block : block;  // patch start
     double end = 0;
     for (const auto& n : notes) end = std::max(end, n.t + n.len);
     const int total = start + int((lead + end + tail) * sr);
@@ -179,12 +203,12 @@ int main(int argc, char* argv[]) {
         juce::MidiMessage msg;
     };
     std::vector<Ev> evs;
-    if (stateIn.isEmpty() && !pcChannels.empty()) {
+    if (!restored && !pcChannels.empty()) {
         for (const auto& c : pcChannels) {
             evs.push_back({0, juce::MidiMessage::controllerEvent(c.ch, 0, 0)});
             evs.push_back({0, juce::MidiMessage::controllerEvent(c.ch, 32, c.bank)});
         }
-    } else if (stateIn.isEmpty()) {
+    } else if (!restored) {
         evs.push_back({0, juce::MidiMessage::controllerEvent(channel, 0, 0)});
         evs.push_back({0, juce::MidiMessage::controllerEvent(channel, 32, bank)});
         if (!pcParam) evs.push_back({0, juce::MidiMessage::programChange(channel, patch)});
@@ -243,7 +267,7 @@ int main(int argc, char* argv[]) {
             knobDone = true;
         }
         plugin->processBlock(buf, midi);
-        if (!pcChannels.empty() && stateIn.isEmpty() && t == 0) {
+        if (!pcChannels.empty() && !restored && t == 0) {
             for (const auto& c : pcChannels) {
                 const auto want = "MIDI Channel " + juce::String(c.ch) + " Program";
                 juce::AudioProcessorParameter* found = nullptr;
@@ -257,7 +281,7 @@ int main(int argc, char* argv[]) {
             }
             juce::MessageManager::getInstance()->runDispatchLoopUntil(20);
         }
-        if (pcParam && stateIn.isEmpty() && t == 0) {
+        if (pcParam && !restored && t == 0) {
             if (plugin->getNumPrograms() < 128) {
                 std::fprintf(stderr, "the plugin has %d programs%s", plugin->getNumPrograms(), juce::newLine.getDefault());
                 return 1;

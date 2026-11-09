@@ -63,6 +63,24 @@ The plugin reads the user's own Hypersonic 2 Content folder; nothing from it is 
 
 The folder choice and the piano memory mode are saved in the user settings file `HS2Port/HS2Port.settings` and shared by all instances.
 
+## Presets (DAW preset browsers and Komplete Kontrol)
+
+"Install presets..." in Settings writes a preset file for every patch and combi of the content folder, so they can be chosen from the DAW's preset browser and from Komplete Kontrol. The files hold only the patch reference (bank, number and name); the sound still comes from the content folder. Copy-protected patches are left out.
+
+| Format | Windows | Mac |
+|---|---|---|
+| VST3 (`.vstpreset`) | `Documents\VST3 Presets\HS2 Port\HS2 Port\` | `~/Library/Audio/Presets/HS2 Port/HS2 Port/` |
+| Audio Unit (`.aupreset`) | - | `~/Library/Audio/Presets/HS2 Port/HS2 Port/` |
+| Komplete Kontrol (`.nksf`) | `Documents\Native Instruments\User Content\HS2 Port\` | `~/Documents/Native Instruments/User Content/HS2 Port/` |
+
+- Folders: `Patches/<bank>/` and `Combis/<bank>/`.
+- A patch preset loads the patch into part 1 and empties the other parts; a combi preset loads the combi. The Settings choices, the selected part and the master volume stay as they are.
+- Running it again replaces only the files it wrote before (a `.hs2port-presets.json` receipt lists them); presets saved there by hand are kept.
+- Komplete Kontrol: the presets appear in the browser under User, with the bank as the bank name, a sound type per bank (for example Synth Lead for Soft Leads) and the patch's author and description. Knob page 1 holds the patch's six Hyperknobs (with the patch's own names), Level and Pan; page 2 the four effect sends, Level, Pan, Mute and Master. Combis: the part levels (parts 1 to 8, then 9 to 16). If HS2 Port is new to Komplete Kontrol, rescan the plug-ins first.
+- `hs2presets --content <folder> [--vst3 DIR] [--au DIR] [--nks DIR] [--defaults]` (built with the plugin) writes the same files from the command line.
+
+Host parameter ids are the parameter numbers (JUCE legacy parameter ids, since 0.3.0), which the Komplete Kontrol knob pages refer to. Automation or MIDI-learn assignments made with an earlier version may need to be assigned again; the plugin's saved setups are not affected.
+
 ## Using it with a screen reader
 
 When the window opens, focus is in the search box. Tab and Shift+Tab move through the controls in this order (Tab wraps around, so the Part section comes after Status):
@@ -80,7 +98,7 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
 4. **Part N Hyperknobs:** six sliders named after the patch's own knobs, for example "Hyperknob 4: Thump". Values are percentages.
 5. **Part N mixer:** Mute, Level, Pan, Effect send 1 to 4. Level and sends read as a percentage and in dB.
 6. **Master:** master volume in dB (all parts).
-7. **Settings:** content folder, "Choose content folder...", piano memory mode (ECO, MID or XXL), "Load patches and combis from MIDI program changes", "Let effect tails ring out", "Stop the old sound when a part's patch changes", "Audio and MIDI settings..." (standalone app only), Keyboard help.
+7. **Settings:** content folder, "Choose content folder...", piano memory mode (ECO, MID or XXL), "Load patches and combis from MIDI program changes", "Let effect tails ring out", "Stop the old sound when a part's patch changes", "Install presets..." (see Presets), "Audio and MIDI settings..." (standalone app only), Keyboard help.
    - **Audio and MIDI settings** (standalone app): a window with Audio driver (ASIO on Windows when built with the ASIO SDK, Windows Audio, DirectSound; Core Audio on Mac), Output device, Sample rate, Buffer size (with its length in milliseconds), Refresh devices, Driver control panel (the ASIO driver's own settings), one "MIDI input: name" check box per MIDI input, a read-only Audio status box (device, rate, buffer, latency, errors) and Close. Changes apply at once and are saved; Escape closes the window.
 8. **Status:** a read-only text box with loading progress, errors, and features of the loaded patches that the port does not support yet.
 
