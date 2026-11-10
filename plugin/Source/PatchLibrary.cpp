@@ -42,6 +42,23 @@ PatchLibrary PatchLibrary::scan(const std::filesystem::path& root) {
     }
     if (ec) lib.errors.push_back("Cannot read the Patches folder: " + ec.message());
 
+    // Microtuning banks (names only; the engine reads the scales itself).
+    std::error_code tec;
+    for (const auto& e : std::filesystem::directory_iterator(root / "Tunings", tec)) {
+        const auto name = e.path().filename().string();
+        if (!numbered(name) || !e.is_regular_file()) continue;
+        try {
+            auto mb = hs2::MilanBank::open(e.path());
+            TuningBank t;
+            t.number = std::stoi(name.substr(0, 3));
+            t.name = name;
+            for (const auto& entry : mb->entries) t.scales.push_back(trim(entry.name));
+            lib.tunings.push_back(std::move(t));
+        } catch (const std::exception&) {
+        }
+    }
+    std::sort(lib.tunings.begin(), lib.tunings.end(), [](const TuningBank& a, const TuningBank& b) { return a.number < b.number; });
+
     for (const auto& [number, path] : files) {
         BankInfo b;
         b.number = number;
@@ -101,6 +118,12 @@ PatchLibrary PatchLibrary::scan(const std::filesystem::path& root) {
         if (!b.patches.empty()) lib.banks.push_back(std::move(b));
     }
     return lib;
+}
+
+const TuningBank* PatchLibrary::tuning(int number) const {
+    for (const auto& t : tunings)
+        if (t.number == number) return &t;
+    return nullptr;
 }
 
 const BankInfo* PatchLibrary::bank(int number) const {

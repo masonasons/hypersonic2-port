@@ -117,8 +117,11 @@ run([HOST, VST, '--bank', '15', '--patch', '23', '--notes', NOTES] + COMMON +
 run([HOST, VST, '--state-in', f('state_nopump.bin'), '--notes', NOTES] + COMMON + ['--out', f('nopump_rest.wav')])
 compare('state saved without message loop, restored', f('nopump_rest.wav'), f('ref_st_15_23.wav'))
 
-# 6. Host parameters reach the engine: a Hyperknob and a part level (the knob also survives a state round trip).
-for name, arg in [('Hyperknob 1 = 0.95', ['--knob', '1=0.95']), ('Part 1 Level = 0.3', ['--param', 'Part 1 Level=0.3'])]:
+# 6. Host parameters reach the engine: a Hyperknob, a part level and two of the part settings (Transpose, Arpeggiator);
+# each also survives a state round trip.
+for name, arg in [('Hyperknob 1 = 0.95', ['--knob', '1=0.95']), ('Part 1 Level = 0.3', ['--param', 'Part 1 Level=0.3']),
+                  ('Part 1 Transpose = +12', ['--param', 'Part 1 Transpose=0.665']),
+                  ('Part 1 Arpeggiator = ON', ['--param', 'Part 1 Arpeggiator=0.75'])]:
     out, st, rest = f('param.wav'), f('param.bin'), f('param_rest.wav')
     run([HOST, VST, '--bank', '15', '--patch', '23', '--notes', NOTES] + COMMON + ['--out', out, '--state-out', st] + arg)
     a, ref = load(out), load(f('ref_pc_15_23.wav'))

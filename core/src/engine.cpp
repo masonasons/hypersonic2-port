@@ -41,23 +41,31 @@ int sendFxParamIndex(int j) {
 }
 }  // namespace
 
+const std::array<float, Engine::kNumParams>& Engine::defaultParameters() {
+    static const std::array<float, kNumParams> kDefaults = [] {  // plugin ctor FUN_1008bad0: VST parameter defaults
+        std::array<float, kNumParams> v{};
+        v[0] = 0.5f;
+        for (int ch = 0; ch < kParts; ++ch) {
+            const int b = 3 + ch * kParamsPerPart;
+            static constexpr int kOfs[] = {0, 0xd, 0x10, 0x12, 0x13, 0x14, 0x47, 0x48, 0x5f, 0x60, 0x77, 0x78, 0x8f, 0x90};
+            for (int o : kOfs) v[size_t(b + o)] = (o == 0xd || o == 0x10) ? 1.f : 0.5f;
+            v[size_t(b + 1)] = bits(0x3d4ccccd);
+            v[size_t(b + 0x17)] = bits(0x3f356d5d);
+        }
+        for (int k = 0; k < 4; ++k) {
+            v[size_t(0x991 + 0x18 * k)] = bits(0x3d4ccccd);
+            v[size_t(0x992 + 0x18 * k)] = v[size_t(0x993 + 0x18 * k)] = 0.5f;
+        }
+        return v;
+    }();
+    return kDefaults;
+}
+
 Engine::Engine(Content& content, float sampleRate, int outputs)
     : content_(content), sr_(sampleRate), outputs_(std::clamp(outputs, 1, 16)) {
     bus_.outputs = outputs_;
     chain_.fill(-1);
-    // plugin ctor FUN_1008bad0: VST parameter defaults
-    vst_[0] = 0.5f;
-    for (int ch = 0; ch < kParts; ++ch) {
-        const int b = 3 + ch * kParamsPerPart;
-        static constexpr int kOfs[] = {0, 0xd, 0x10, 0x12, 0x13, 0x14, 0x47, 0x48, 0x5f, 0x60, 0x77, 0x78, 0x8f, 0x90};
-        for (int o : kOfs) vst_[size_t(b + o)] = (o == 0xd || o == 0x10) ? 1.f : 0.5f;
-        vst_[size_t(b + 1)] = bits(0x3d4ccccd);
-        vst_[size_t(b + 0x17)] = bits(0x3f356d5d);
-    }
-    for (int k = 0; k < 4; ++k) {
-        vst_[size_t(0x991 + 0x18 * k)] = bits(0x3d4ccccd);
-        vst_[size_t(0x992 + 0x18 * k)] = vst_[size_t(0x993 + 0x18 * k)] = 0.5f;
-    }
+    vst_ = defaultParameters();  // plugin ctor FUN_1008bad0
     // resume(): +0xb00 = 1 / (sr * 60); the synth ctor's stored sync: 120 bpm, 4 beats per bar
     hSpb_ = 1.0 / (double(sampleRate) * 60.0);
     hBps_ = 120.0 * hSpb_;
@@ -357,6 +365,12 @@ void Engine::setParameter(int index, float value) {
             return;
         }
     }
+}
+
+int Engine::globalFxType(int k) const {
+    if (k < 0 || k >= 4 || !global_) return 128;
+    const auto& s = global_->sendFx_[size_t(k)];
+    return s.fx ? s.fxType : 128;
 }
 
 void Engine::setPartSetter(int part, int elem, int idx, float value) {

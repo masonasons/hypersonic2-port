@@ -32,6 +32,13 @@ struct BankInfo {
     bool combi = false;     // a combi bank folder ("120 Combis", "121 User Combis")
 };
 
+// A microtuning bank (Tunings/NNN name): its number (a part's Tuning Bank setting) and its scales' names.
+struct TuningBank {
+    int number = -1;
+    std::string name;                 // file name, e.g. "000 Microtunings"
+    std::vector<std::string> scales;  // entry names (a part's Tuning Scale setting is the index)
+};
+
 class PatchLibrary {
 public:
     // Scans <root>/Patches: the patch bank files and the combi bank folders (Patches/NNN name/MMM name.fxb).
@@ -40,6 +47,8 @@ public:
 
     std::vector<PatchRef> patches;
     std::vector<BankInfo> banks;
+    std::vector<TuningBank> tunings;
+    const TuningBank* tuning(int number) const;
     std::vector<std::string> errors;
 
     const BankInfo* bank(int number) const;

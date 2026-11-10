@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "ParamDefs.h"
 #include "PatchLibrary.h"
 #include "hs2/combi.h"
 #include "hs2/content.h"
@@ -42,8 +43,17 @@ enum PartParam { ppMute, ppLevel, ppPan, ppSend1, ppKnob1 = ppSend1 + kNumSends,
 constexpr int partParamJ(int pp) {
     return pp == ppMute ? 1 : pp == ppLevel ? 2 : pp == ppPan ? 3 : pp < ppKnob1 ? 5 + (pp - ppSend1) : 9 + (pp - ppKnob1);
 }
-constexpr int kNumExposed = 1 + kNumParts * kPartParams;  // 0 = master volume
+constexpr int kNumMixerExposed = 1 + kNumParts * kPartParams;  // 0 = master volume, then the mixer and Hyperknobs
 constexpr int exposedIndex(int part, int pp) { return 1 + part * kPartParams + pp; }
+// After those (so their numbers never change): each part's settings, microtuning and arpeggiator (ParamDefs.h
+// kExtDefs), Link for parts 2..16, the four global send effects (24 each).
+constexpr int kExtPartBase = kNumMixerExposed;
+constexpr int kLinkBase = kExtPartBase + kNumParts * kExtPerPart;
+constexpr int kGfxBase = kLinkBase + (kNumParts - 1);
+constexpr int kNumExposed = kGfxBase + kGfxSlots * kGfxParams;
+constexpr int extIndex(int part, int e) { return kExtPartBase + part * kExtPerPart + e; }
+constexpr int linkIndex(int part) { return kLinkBase + part - 1; }  // part 1..15 (the second part on)
+constexpr int gfxIndex(int k, int j) { return kGfxBase + k * kGfxParams + j; }
 
 // Patch, bank and combi names are Windows-1252 / Latin-1 bytes: converted 1:1 (no UTF-8 decoding).
 juce::String fromLatin1(const std::string& s);
@@ -175,7 +185,14 @@ public:
     void setCutOnLoad(bool on) { cutOnLoad_ = on; }
     // "Hyperknob 1: Thump" (the loaded patch's own name for the knob, if it has one).
     juce::String knobName(int part, int k) const;
-    juce::String patchKnobName(int part, int k) const;
+    juce::String patchKnobName(int part, int k) const;  // the patch's own name, may be empty
+    // Value text of exposed parameter i at v, and the reverse (the host's typed values).
+    juce::String valueText(int i, float v) const;
+    float valueFromText(int i, const juce::String& text) const;
+    // The choices of a parameter that has a fixed list of values (value to set, text); empty for continuous ones.
+    std::vector<std::pair<float, juce::String>> choices(int i) const;
+    // The effect in global send effect slot k (0..3), e.g. "Hall Reverb"; empty when the slot has none.
+    juce::String globalFxName(int k) const;
     // The value exposed parameter i had right after its patch, combi or setup loaded (what Delete on a slider returns
     // to); the parameter's default before any load.
     float loadedValue(int i) const {
@@ -236,8 +253,14 @@ private:
     void submit(const Request& r);
     void submitRebuild(const Rebuild& r);
     void applyCommand(hs2::Engine& e, const Command& c);
-    int engineIndex(int i) const { return i == 0 ? 0 : ((i - 1) / kPartParams) * hs2::Engine::kParamsPerPart +
-                                                           partParamJ((i - 1) % kPartParams); }
+    static int engineIndex(int i) {
+        if (i < kExtPartBase)
+            return i == 0 ? 0 : ((i - 1) / kPartParams) * hs2::Engine::kParamsPerPart + partParamJ((i - 1) % kPartParams);
+        if (i < kLinkBase)
+            return ((i - kExtPartBase) / kExtPerPart) * hs2::Engine::kParamsPerPart + kExtDefs[(i - kExtPartBase) % kExtPerPart].j;
+        if (i < kGfxBase) return (i - kLinkBase + 1) * hs2::Engine::kParamsPerPart;
+        return hs2::Engine::kGlobalFxBase + (i - kGfxBase);
+    }
     void syncParameters(hs2::Engine& e);  // audio thread
 
     juce::SharedResourcePointer<GlobalSettings> settings_;
@@ -272,6 +295,7 @@ private:
     // VST3 program changes (setCurrentProgram -> audio thread, see getNumPrograms).
     std::atomic<int> pendingProgram_{-1};
     std::array<std::atomic<int>, 16> pendingChannelProgram_;  // per MIDI channel, -1 = none (patched JUCE)
+    std::array<std::atomic<int>, kGfxSlots> gfxType_{};       // effect type per global send FX slot (128 none)
     // Controllers that come with a program change (audio thread). The part's CC map sends CC7 / CC10 / CC91.. to the
     // part's own Level / Pan / sends, so they are lost when the new patch replaces the part a block or more later
     // (the original's loader runs even later, from the host's idle calls). A MIDI file sets volume, pan and sends

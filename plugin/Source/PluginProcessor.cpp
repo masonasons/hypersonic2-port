@@ -9,6 +9,7 @@
 #include "PresetExport.h"
 #include "hs2/bank.h"
 #include "hs2/patch.h"
+#include "hs2/effects.h"
 #include "hs2/synth.h"
 
 namespace hs2port {
@@ -154,6 +155,113 @@ private:
     int idx_;
 };
 
+// ---- value texts of the parameters beyond the mixer
+
+namespace {
+int quant129(float v) { return int(v * 128.9f); }  // the engine's bank / scale numbers (trunc(v * 128.9))
+}
+
+juce::String HS2Processor::valueText(int i, float v) const {
+    if (i >= kGfxBase) {
+        const auto& d = gfxDef((i - kGfxBase) % kGfxParams);
+        return d.kind == GfxKind::knob ? percent(v) : tableText(*d.table, v);
+    }
+    if (i >= kLinkBase)
+        return v > 0.5f ? "on, plays part " + juce::String(i - kLinkBase + 1) + "'s notes" : juce::String("off");
+    if (i < kExtPartBase) return exposed_[size_t(i)]->getText(v, 100);
+    const int part = (i - kExtPartBase) / kExtPerPart, e = (i - kExtPartBase) % kExtPerPart;
+    const auto& d = kExtDefs[e];
+    switch (d.kind) {
+        case ExtKind::table: return tableText(*d.table, v);
+        case ExtKind::arpRate: return tableText(*d.table, arpRatePatchValue(v));
+        case ExtKind::tuneBank: {
+            const int n = quant129(v);
+            const auto lib = library();
+            if (const auto* t = lib != nullptr ? lib->tuning(n) : nullptr) return fromLatin1(t->name);
+            return "none (bank " + juce::String(n) + ")";
+        }
+        case ExtKind::tuneScale: {
+            const int n = quant129(exposed_[size_t(extIndex(part, e - 1))]->getValue()), idx = quant129(v);
+            const auto lib = library();
+            if (const auto* t = lib != nullptr ? lib->tuning(n) : nullptr)
+                return idx >= 0 && idx < int(t->scales.size()) ? fromLatin1(t->scales[size_t(idx)]) : juce::String("none");
+            return "none";
+        }
+    }
+    return {};
+}
+
+std::vector<std::pair<float, juce::String>> HS2Processor::choices(int i) const {
+    std::vector<std::pair<float, juce::String>> out;
+    if (i >= kGfxBase) {
+        const auto& d = gfxDef((i - kGfxBase) % kGfxParams);
+        if (d.kind == GfxKind::table) out = tableChoices(*d.table);
+        return out;
+    }
+    if (i >= kLinkBase) return {{0.25f, "off"}, {0.75f, "on, plays part " + juce::String(i - kLinkBase + 1) + "'s notes"}};
+    if (i < kExtPartBase) return out;
+    const int part = (i - kExtPartBase) / kExtPerPart, e = (i - kExtPartBase) % kExtPerPart;
+    const auto& d = kExtDefs[e];
+    const auto lib = library();
+    switch (d.kind) {
+        case ExtKind::table: out = tableChoices(*d.table); break;
+        case ExtKind::arpRate:  // patch values 0.2..1 are reachable
+            for (auto& [val, text] : tableChoices(*d.table, 0.2f, 1.f)) out.push_back({(val - 0.2f) / 0.8f, text});
+            break;
+        case ExtKind::tuneBank: {
+            int none = 127;  // a bank number without a file: no tuning
+            while (none > 0 && lib != nullptr && lib->tuning(none) != nullptr) --none;
+            out.push_back({(float(none) + 0.5f) / 128.9f, "none"});
+            if (lib != nullptr)
+                for (const auto& t : lib->tunings) out.push_back({(float(t.number) + 0.5f) / 128.9f, fromLatin1(t.name)});
+            break;
+        }
+        case ExtKind::tuneScale: {
+            const int n = quant129(exposed_[size_t(extIndex(part, e - 1))]->getValue());
+            if (const auto* t = lib != nullptr ? lib->tuning(n) : nullptr)
+                for (size_t k = 0; k < t->scales.size(); ++k)
+                    out.push_back({(float(k) + 0.5f) / 128.9f, fromLatin1(t->scales[k])});
+            break;
+        }
+    }
+    return out;
+}
+
+float HS2Processor::valueFromText(int i, const juce::String& text) const {
+    const auto t = text.trim();
+    for (const auto& [val, name] : choices(i))  // a choice by its name
+        if (name.equalsIgnoreCase(t)) return val;
+    const paramtext::Table* table = nullptr;
+    if (i >= kGfxBase) table = gfxDef((i - kGfxBase) % kGfxParams).table;
+    else if (i >= kExtPartBase && i < kLinkBase) table = kExtDefs[(i - kExtPartBase) % kExtPerPart].table;
+    if (table != nullptr && table->kind != paramtext::kEnum) {  // the sample whose text / number is nearest
+        const float want = numberIn(t);
+        int best = 0;
+        float bestD = 1e30f;
+        for (int k = 0; k <= 1024; ++k) {
+            const float x = table->kind == paramtext::kNumeric ? table->nums[k] : numberIn(table->texts[k]);
+            if (std::abs(x - want) < bestD) {
+                bestD = std::abs(x - want);
+                best = k;
+            }
+        }
+        return float(best) / 1024.f;
+    }
+    if (table != nullptr) {  // an enum: the choice whose text holds the number
+        for (const auto& [val, name] : tableChoices(*table))
+            if (name.retainCharacters("0123456789.-") == t.retainCharacters("0123456789.-") && name.isNotEmpty())
+                return val;
+    }
+    return juce::jlimit(0.f, 1.f, numberIn(t) / 100.f);  // a percentage
+}
+
+juce::String HS2Processor::globalFxName(int k) const {
+    const int type = k >= 0 && k < kGfxSlots ? gfxType_[size_t(k)].load() : 128;
+    if (type >= 128) return {};
+    const char* n = hs2::effectName(type);
+    return n != nullptr ? juce::String(n) : "effect " + juce::String(type);
+}
+
 juce::String HS2Processor::patchKnobName(int part, int k) const {
     std::lock_guard<std::mutex> lk(infoMu_);
     return infos_[size_t(part)].knobNames[size_t(k)].trim();
@@ -290,6 +398,26 @@ HS2Processor::HS2Processor()
                         return pctParse(t.containsChar(',') ? t.fromLastOccurrenceOf(",", false, false) : t);
                     }));
     }
+    // The original's other VST parameters: each part's settings, microtuning and arpeggiator, Link, the global send
+    // effects. Defaults are the engine's (FUN_1008bad0); texts from the original's display code (ParamDefs.h).
+    const auto& defaults = hs2::Engine::defaultParameters();
+    auto addExt = [&](int i, const juce::String& id, const juce::String& name) {
+        add(i, std::make_unique<EngineParameter>(
+                   *this, i, id, name, defaults[size_t(engineIndex(i))], [this, i](float v) { return valueText(i, v); },
+                   [this, i](const juce::String& t) { return valueFromText(i, t); }));
+    };
+    for (int part = 0; part < kNumParts; ++part)
+        for (int e = 0; e < kExtPerPart; ++e)
+            addExt(extIndex(part, e), "p" + juce::String(part + 1) + "_" + kExtDefs[e].id,
+                   "Part " + juce::String(part + 1) + " " + kExtDefs[e].name);
+    for (int part = 1; part < kNumParts; ++part)
+        addExt(linkIndex(part), "p" + juce::String(part + 1) + "_link", "Part " + juce::String(part + 1) + " Link");
+    for (int k = 0; k < kGfxSlots; ++k)
+        for (int j = 0; j < kGfxParams; ++j)
+            addExt(gfxIndex(k, j), "gfx" + juce::String(k + 1) + "_" + gfxDef(j).id,
+                   "Global Effect " + juce::String(k + 1) + " " + gfxDef(j).name);
+    for (auto& t : gfxType_) t = 128;
+
     for (int i = 0; i < kNumExposed; ++i) {
         engineVal_[size_t(i)] = kNaN;
         hostSeen_[size_t(i)] = exposed_[size_t(i)]->getValue();
@@ -739,6 +867,7 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
         const juce::SpinLock::ScopedLockType sl(swapLock_);
         std::swap(active_, act);
         for (int i = 0; i < kNumExposed; ++i) engineVal_[size_t(i)] = active_->engine->getParameter(engineIndex(i));
+        for (int k = 0; k < kGfxSlots; ++k) gfxType_[size_t(k)] = active_->engine->globalFxType(k);
         resyncAll_ = true;
         const juce::SpinLock::ScopedLockType cl(cmdLock_);
         cmdQueue_.clear();  // the rebuild includes every load queued before it
@@ -883,6 +1012,8 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
         else if (c.kind == Command::loadPatch || c.kind == Command::clearPart) replay |= 1u << (c.part & 15);
     }
     cmdWork_.clear();
+    if (replay == 0xffff)  // a combi: its global effects
+        for (int k = 0; k < kGfxSlots; ++k) gfxType_[size_t(k)] = eng.globalFxType(k);
     for (int p = 0; p < kNumParts; ++p)  // the loaded patches' own values (before the controllers replayed below)
         if (replay >> p & 1)
             for (int pp = 0; pp < kPartParams; ++pp) {

@@ -65,6 +65,8 @@ public:
     // 30 Glide, 31 Glide Time, 32..38 microtuning, 39..47 arpeggiator, 56 + s*24 + j': patch send FX s.
     void setParameter(int index, float value);
     float getParameter(int index) const { return index >= 0 && index < kNumParams ? vst_[size_t(index)] : 0.f; }
+    // The VST parameters of a new instance (plugin ctor FUN_1008bad0), before any load.
+    static const std::array<float, kNumParams>& defaultParameters();
     void setPartParameter(int part, int j, float v) { setParameter(part * kParamsPerPart + j, v); }
     // FUN_100121a0 on a part (elem 0 = patch, 1..0x40 element records, 0x41..0x44 send FX) or, part = -1, the global
     // part (elem 0x41..0x44 = the global send FX).
@@ -102,6 +104,8 @@ public:
     int outputs() const { return outputs_; }
     PatchPlayer& part(int p) { return *slots_[size_t(p)].latest(); }
     PatchPlayer& globalPart() { return *global_; }
+    // The effect type in global send FX slot k (0..3): effects.h numbering, 128 = none.
+    int globalFxType(int k) const;
     float masterGain() const { return master_; }
     const std::string& combiName() const { return combiName_; }
 
