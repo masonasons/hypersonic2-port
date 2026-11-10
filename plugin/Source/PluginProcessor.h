@@ -104,6 +104,9 @@ struct Setup {
         juce::String name;
     };
     std::array<Part, kNumParts> parts;
+    // The effect preset chosen for each global effect slot: its path under Effects ("Delay/Mono Delay.fxp"), "none"
+    // (emptied), or empty (as the combi / patches / a new instance set it).
+    std::array<juce::String, kGfxSlots> gfx;
 };
 
 class HS2Processor : public juce::AudioProcessor, public juce::VST3ClientExtensions, private juce::Timer {
@@ -167,6 +170,10 @@ public:
     void requestPatch(int part, int bank, int index, bool explicitRequest);
     void requestCombi(int bank, int index, bool explicitRequest);
     void requestClearPart(int part);
+    // Global effect slot k: load an effect preset (path under Effects, PatchLibrary::effects) or "none" (no effect).
+    void requestGlobalFx(int k, const juce::String& path);
+    juce::String gfxChoice(int k) const;    // Setup::gfx of slot k
+    juce::String gfxSlotText(int k) const;  // "Long Reverb (Hall Reverb)", "Mono Delay (Delay)", "Hall Reverb", "empty"
     juce::File contentFolder() const { return settings_->contentFolder(); }
     void setContentFolder(const juce::File& f);
     int memoryMode() const { return settings_->memoryMode(); }
@@ -223,15 +230,17 @@ private:
     };
     // A load prepared by the loader thread, applied by the audio thread between blocks.
     struct Command {
-        enum Kind { loadPatch, loadCombi, clearPart, memoryMode } kind = loadPatch;
+        enum Kind { loadPatch, loadCombi, clearPart, memoryMode, globalFx } kind = loadPatch;
         int part = 0, bank = -1;
         float value = 0;
+        std::array<float, 12> knobs{};  // globalFx: the preset's knobs (value = its type)
+        bool empty = false;             // globalFx: no effect
         std::shared_ptr<const hs2::Patch> patch;
         std::shared_ptr<const hs2::Combi> combi;
     };
     // A load the user or MIDI asked for, handled by the loader thread.
     struct Request {
-        enum Kind { patch, combi, clear, memory } kind = patch;
+        enum Kind { patch, combi, clear, memory, gfx } kind = patch;
         int part = 0, bank = -1, index = -1;
         juce::String name;  // to find the patch again if the bank changed
         bool explicitRequest = false;
@@ -301,6 +310,10 @@ private:
     // VST3 program changes (setCurrentProgram -> audio thread, see getNumPrograms).
     std::atomic<int> pendingProgram_{-1};
     std::array<std::atomic<int>, 16> pendingChannelProgram_;  // per MIDI channel, -1 = none (patched JUCE)
+    // The name of the effect in each global slot ("Long Reverb", "Mono Delay") and the type it names (infoMu_): shown
+    // only while the slot still holds that type (a patch can put its own effect into an empty slot).
+    std::array<juce::String, kGfxSlots> gfxLabel_;
+    std::array<int, kGfxSlots> gfxLabelType_{{-1, -1, -1, -1}};
     std::array<std::atomic<int>, kGfxSlots> gfxType_{};       // effect type per global send FX slot (128 none)
     // Controllers that come with a program change (audio thread). The part's CC map sends CC7 / CC10 / CC91.. to the
     // part's own Level / Pan / sends, so they are lost when the new patch replaces the part a block or more later

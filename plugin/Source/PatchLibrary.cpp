@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <cstring>
+#include <fstream>
 #include <map>
 
 #include "hs2/bank.h"
@@ -25,6 +27,16 @@ std::string trim(std::string s) {
     return s.substr(i);
 }
 }  // namespace
+
+bool EffectPreset::read(const std::filesystem::path& file, EffectPreset& out) {
+    std::ifstream f(file, std::ios::binary);
+    if (!f) return false;
+    std::vector<char> d((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    if (d.size() != 0x4e4) return false;  // the original accepts exactly this size
+    std::memcpy(&out.type, d.data() + 0x130, 4);
+    for (int i = 0; i < 12; ++i) std::memcpy(&out.knobs[size_t(i)], d.data() + 0x148 + 4 * i, 4);
+    return true;
+}
 
 PatchLibrary PatchLibrary::scan(const std::filesystem::path& root) {
     PatchLibrary lib;
@@ -58,6 +70,23 @@ PatchLibrary PatchLibrary::scan(const std::filesystem::path& root) {
         }
     }
     std::sort(lib.tunings.begin(), lib.tunings.end(), [](const TuningBank& a, const TuningBank& b) { return a.number < b.number; });
+
+    // Effect presets (Effects/<category>/<name>.fxp), for the global effect slots.
+    std::error_code fec;
+    const auto fxRoot = root / "Effects";
+    for (std::filesystem::recursive_directory_iterator it(fxRoot, fec), end; !fec && it != end; it.increment(fec)) {
+        if (!it->is_regular_file() || lower(it->path().extension().string()) != ".fxp") continue;
+        EffectPreset fx;
+        if (!EffectPreset::read(it->path(), fx)) continue;
+        fx.rel = std::filesystem::relative(it->path(), fxRoot);
+        lib.effects.push_back(std::move(fx));
+    }
+    auto fxKey = [](const EffectPreset& e) {
+        const auto g = lower(e.rel.generic_string());
+        return std::make_pair(g.rfind("user effects/", 0) == 0, g);
+    };
+    std::sort(lib.effects.begin(), lib.effects.end(),
+              [&](const EffectPreset& a, const EffectPreset& b) { return fxKey(a) < fxKey(b); });
 
     for (const auto& [number, path] : files) {
         BankInfo b;

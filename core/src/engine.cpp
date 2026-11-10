@@ -321,6 +321,22 @@ void Engine::loadCombi(const Combi& c) {
     }
 }
 
+void Engine::loadGlobalFx(int k, float type, const float* knobs) {
+    if (k < 0 || k >= 4 || !global_) return;
+    const int e = 0x41 + k;
+    if (knobs == nullptr) {
+        global_->setParam(e, 0x13, 1.f);
+    } else {
+        global_->setParam(e, 0x91, 0.f);
+        global_->setParam(e, 0x92, 0.f);
+        global_->setParam(e, 0x13, type);
+        for (int i = 0; i < 12; ++i) global_->setParam(e, 0x19 + i, knobs[i]);
+        global_->setParam(e, 0x00, 0.f);
+    }
+    const int p0 = kGlobalFxBase + k * 0x18;
+    for (int j = 0; j < 0x18; ++j) setParameter(p0 + j, global_->getParam(e, sendFxParamIndex(j)));
+}
+
 // FUN_1008a950
 void Engine::setParameter(int index, float value) {
     if (index < 0 || index >= kNumParams) return;

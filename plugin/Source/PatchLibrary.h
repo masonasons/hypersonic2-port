@@ -3,6 +3,7 @@
 // Only names are kept: a scan opens each patch bank once and reads its directory.
 #include <cstdint>
 #include <cstring>
+#include <array>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -39,6 +40,14 @@ struct TuningBank {
     std::vector<std::string> scales;  // entry names (a part's Tuning Scale setting is the index)
 };
 
+// An effect preset (Effects/<category>/<name>.fxp, 1252 bytes): what the original's FUN_10085160 reads from it.
+struct EffectPreset {
+    std::filesystem::path rel;      // under Effects, e.g. "Delay/Mono Delay.fxp"
+    float type = 1.f;               // element param 0x13 (file +0x130): the effect type
+    std::array<float, 12> knobs{};  // element params 0x19..0x24 (file +0x148)
+    static bool read(const std::filesystem::path& file, EffectPreset& out);
+};
+
 class PatchLibrary {
 public:
     // Scans <root>/Patches: the patch bank files and the combi bank folders (Patches/NNN name/MMM name.fxb).
@@ -48,6 +57,7 @@ public:
     std::vector<PatchRef> patches;
     std::vector<BankInfo> banks;
     std::vector<TuningBank> tunings;
+    std::vector<EffectPreset> effects;  // sorted by folder (User Effects last), then name
     const TuningBank* tuning(int number) const;
     std::vector<std::string> errors;
 

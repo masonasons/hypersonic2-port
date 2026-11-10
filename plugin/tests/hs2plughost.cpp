@@ -28,6 +28,8 @@
 // after the start; the message loop runs for 100 ms after it.
 // --dump-params prints the names and value texts of Master, Part 1, Part 2 Link and the global effects at the end
 // (what a host lists).
+// --state-gfx "slot=path" chooses an effect preset for a global effect slot in the --state-in state (slot 1..4, path
+// under the content's Effects folder, e.g. "1=Delay/Mono Delay.fxp", or "none"), as the Effect box does.
 // --state-attr sets an attribute of the plugin's own state XML (e.g. ringOut=0) in the --state-in state before it is
 // restored (inside the host's VST3PluginState wrapper: IComponent, base64, then the plugin's copyXmlToBinary block).
 // The play head reports 120 bpm, stopped, position 0, 4/4 (as hs2render --host "-1:120:0").
@@ -36,6 +38,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <vector>
 
 namespace {
@@ -59,7 +62,7 @@ public:
 };
 
 // The plugin's state inside a JUCE VST3 host state, with one attribute of its root element changed.
-bool setStateAttribute(juce::MemoryBlock& state, const juce::String& name, const juce::String& value) {
+bool editState(juce::MemoryBlock& state, const std::function<void(juce::XmlElement&)>& change) {
     auto outer = juce::AudioProcessor::getXmlFromBinary(state.getData(), int(state.getSize()));  // the host's wrapper
     auto* comp = outer != nullptr ? outer->getChildByName("IComponent") : nullptr;
     if (comp == nullptr) return false;
@@ -71,7 +74,7 @@ bool setStateAttribute(juce::MemoryBlock& state, const juce::String& name, const
         const size_t len = juce::ByteOrder::littleEndianInt(d + pos + 4);
         auto inner = juce::AudioProcessor::getXmlFromBinary(d + pos, int(c.getSize() - pos));
         if (inner == nullptr || pos + 8 + len > c.getSize()) return false;
-        inner->setAttribute(name, value);
+        change(*inner);
         juce::MemoryBlock nb;
         juce::AudioProcessor::copyXmlToBinary(*inner, nb);
         juce::MemoryBlock c2(d, pos);
@@ -84,6 +87,10 @@ bool setStateAttribute(juce::MemoryBlock& state, const juce::String& name, const
         return true;
     }
     return false;
+}
+
+bool setStateAttribute(juce::MemoryBlock& state, const juce::String& name, const juce::String& value) {
+    return editState(state, [&](juce::XmlElement& x) { x.setAttribute(name, value); });
 }
 
 void writeWav(const juce::File& f, const std::vector<float>& lr, int sr) {
@@ -172,6 +179,25 @@ int main(int argc, char* argv[]) {
         const auto attr = opt("--state-attr", {});
         if (attr.contains("=") && !setStateAttribute(mb, attr.upToFirstOccurrenceOf("=", false, false),
                                                      attr.fromFirstOccurrenceOf("=", false, false))) {
+            std::fprintf(stderr, "could not change the state%s", juce::newLine.getDefault());
+            return 1;
+        }
+        const auto gfx = opt("--state-gfx", {});
+        if (gfx.contains("=") && !editState(mb, [&](juce::XmlElement& x) {
+                auto* setup = x.getChildByName("SETUP");
+                if (setup == nullptr) setup = x.createNewChildElement("SETUP");
+                auto* e = setup->createNewChildElement("GFX");
+                e->setAttribute("slot", gfx.upToFirstOccurrenceOf("=", false, false).getIntValue());
+                e->setAttribute("effect", gfx.fromFirstOccurrenceOf("=", false, false));
+                // the slot's saved knob values belong to the old effect: drop them (a state saved after choosing the
+                // effect holds the preset's own values)
+                if (auto* params = x.getChildByName("PARAMS")) {
+                    const juce::String prefix = "gfx" + gfx.upToFirstOccurrenceOf("=", false, false).trim() + "_";
+                    for (int i = params->getNumChildElements(); --i >= 0;)
+                        if (params->getChildElement(i)->getStringAttribute("id").startsWith(prefix))
+                            params->removeChildElement(params->getChildElement(i), true);
+                }
+            })) {
             std::fprintf(stderr, "could not change the state%s", juce::newLine.getDefault());
             return 1;
         }

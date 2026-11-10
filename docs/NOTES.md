@@ -1111,3 +1111,15 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   Hyperknobs: names fixed so hosts don't re-read the list); the value text leads with the knob's name. All 100 factory
   combis use only Long Reverb / Short Reverb (both Hall Reverb, type 1) as global effects, so the Sync cases can't be
   shown through a factory combi.
+- **Choosing a global effect (2026-11-09).** The original's FUN_10085160(part, element, path): reads
+  `<content>/Effects/<path>` (accepted only at 0x4e4 = 1252 bytes), names the element after the file (without
+  ".fxp", 31 characters), then setter 0x91 = 0, 0x92 = 0 (Hyperknob routes off), 0x13 = file float +0x130 (the type,
+  e.g. Mono Delay 0.0781 -> 10 Delay), 0x19..0x24 = file floats +0x148.. (the 12 knobs), 0 = 0 (unmuted); a file it
+  can't read empties the slot (0x13 = 1.0). Port: `Engine::loadGlobalFx` (then the slot's VST parameters re-read as
+  after a combi), `EffectPreset` / `PatchLibrary::effects` (all 108 factory presets, 14 folders), the processor's
+  `Setup::gfx` (saved as SETUP/GFX slot / effect; restored after the parts, before the saved parameter values) and
+  the editor's Effect box. hs2plughost `--state-gfx "1=Delay/Mono Delay.fxp"`: Mono Delay's knobs read as the file
+  (Delay 0.506 s, Feedback 50 %), and with a part sending to effect 1 the return starts 0.5 s after the dry sound,
+  repeating at half level, as the original's own Delay does on an impulse (fx_oracle: echoes at 0.505 s, x 0.4975).
+  Sync on reads "Delay, 2/4". A delay at Mix 0 % passes its input through (the original's too), so a send effect
+  with Mix 0 adds the dry sound.

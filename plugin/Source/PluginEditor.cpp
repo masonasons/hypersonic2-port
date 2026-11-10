@@ -407,8 +407,21 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
         }
     };
     setupLabel(gfxSlotLabel_, "Effect slot", gfxSlot_);
+    gfxPage_.addAndMakeVisible(gfxEffect_);
+    gfxEffect_.setTitle("Effect");
+    gfxEffect_.setDescription("The effect in this slot, from the effect presets in the content's Effects folder (as the "
+                              "original's effect browser), by folder: Up and Down arrows load each one at once so you "
+                              "can hear it; No effect empties the slot. Saved with the project.");
+    gfxEffect_.setExplicitFocusOrder(2);
+    gfxEffect_.onChange = [this] {
+        const int id = gfxEffect_.getSelectedId();
+        const int slot = juce::jlimit(0, kGfxSlots - 1, proc_.selectedEffectSlot.load());
+        if (id == 2) proc_.requestGlobalFx(slot, "none");
+        else if (id >= 3 && id - 3 < int(effectPaths_.size())) proc_.requestGlobalFx(slot, effectPaths_[size_t(id - 3)]);
+    };
+    setupLabel(gfxEffectLabel_, "Effect", gfxEffect_);
     {
-        int o = 2;
+        int o = 3;
         // Mute, Level, Pan, Aux Output, the effect's knobs (12: no effect has more), then Send 1 (effects 2..4)
         for (int j : {0, 18, 19, 17, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}) {
             auto row = std::make_unique<ParamRow>(proc_, gfxDef(j).name, juce::String(gfxDef(j).name) + ".", o++);
@@ -567,18 +580,18 @@ void HS2Editor::resized() {
         std::vector<ParamRow*> rows;
         for (auto& r2 : settingsRows_) rows.push_back(r2.get());
         if (linkRow_->isVisible()) rows.push_back(linkRow_.get());
-        layoutRows(settingsPage_, rows, nullptr, nullptr);
+        layoutRows(settingsPage_, rows, {});
         rows.clear();
         for (auto& r2 : arpRows_) rows.push_back(r2.get());
-        layoutRows(arpPage_, rows, nullptr, nullptr);
+        layoutRows(arpPage_, rows, {});
         rows.clear();
         for (auto& r2 : tuningRows_) rows.push_back(r2.get());
-        layoutRows(tuningPage_, rows, nullptr, nullptr);
+        layoutRows(tuningPage_, rows, {});
         rows.clear();
         for (auto& r2 : gfxRows_)
             if (r2->isVisible()) rows.push_back(r2.get());
         if (gfxSend1Row_->isVisible()) rows.push_back(gfxSend1Row_.get());
-        layoutRows(gfxPage_, rows, &gfxSlot_, &gfxSlotLabel_);
+        layoutRows(gfxPage_, rows, {{&gfxSlot_, &gfxSlotLabel_}, {&gfxEffect_, &gfxEffectLabel_}});
     }
     master_.setBounds(masterArea);
     settings_.setBounds(settingsArea);
@@ -681,12 +694,13 @@ void HS2Editor::refreshPartBox() {
 }
 
 // Rows in two columns (row-major), after an optional first control (the effect slot) on its own line.
-void HS2Editor::layoutRows(Section& s, const std::vector<ParamRow*>& rows, juce::Component* first, juce::Label* firstLabel) {
+void HS2Editor::layoutRows(Section& s, const std::vector<ParamRow*>& rows,
+                           const std::vector<std::pair<juce::Component*, juce::Label*>>& heads) {
     auto c = s.content();
-    if (first != nullptr) {
+    for (const auto& [ctl, label] : heads) {
         auto line = c.removeFromTop(28);
-        if (firstLabel != nullptr) firstLabel->setBounds(line.removeFromLeft(110));
-        first->setBounds(line.removeFromLeft(juce::jmin(360, line.getWidth())));
+        if (label != nullptr) label->setBounds(line.removeFromLeft(110));
+        ctl->setBounds(line.removeFromLeft(juce::jmin(420, line.getWidth())));
         c.removeFromTop(6);
     }
     const int colW = (c.getWidth() - 12) / 2, rowH = 28, gap = 4;
@@ -694,6 +708,48 @@ void HS2Editor::layoutRows(Section& s, const std::vector<ParamRow*>& rows, juce:
         const int col = int(i % 2), row = int(i / 2);
         rows[i]->setBounds(c.getX() + col * (colW + 12), c.getY() + row * (rowH + gap), colW, rowH);
     }
+}
+
+void HS2Editor::fillEffectBox() {
+    const int slot = juce::jlimit(0, kGfxSlots - 1, proc_.selectedEffectSlot.load());
+    const auto lib = proc_.library();
+    const auto choice = proc_.gfxChoice(slot);
+    const auto text = proc_.gfxSlotText(slot);
+    // the list changes with the library, the slot, and whether the slot holds a preset chosen here
+    const auto sig = juce::String::toHexString(juce::pointer_sized_int(lib.get())) + "|" + juce::String(slot) + "|" +
+                     (choice.isEmpty() ? "loaded:" + text : choice.startsWith("none") ? "none" : "preset:" + choice);
+    if (sig == seenEffectSig_) return;
+    seenEffectSig_ = sig;
+    const bool focused = gfxEffect_.hasKeyboardFocus(true);
+    const int was = gfxEffect_.getSelectedId();
+    gfxEffect_.clear(juce::dontSendNotification);
+    effectPaths_.clear();
+    int selected = 0;
+    if (choice.isEmpty()) {  // the combi's or patch's effect: shown, but not one to go back to (arrows skip it)
+        gfxEffect_.addItem(text == "empty" ? juce::String("No effect, as loaded") : text + ", as loaded", 1);
+        gfxEffect_.setItemEnabled(1, false);
+        selected = 1;
+    }
+    gfxEffect_.addItem("No effect", 2);
+    if (choice == "none") selected = 2;
+    if (lib != nullptr)
+        for (const auto& fx : lib->effects) {
+            const juce::String path(fx.rel.generic_wstring().c_str());
+            effectPaths_.push_back(path);
+            const int id = 2 + int(effectPaths_.size());
+            const auto folder = path.containsChar('/') ? path.upToFirstOccurrenceOf("/", false, false) : juce::String();
+            const auto name = path.fromLastOccurrenceOf("/", false, false).upToLastOccurrenceOf(".", false, false);
+            gfxEffect_.addItem(folder.isNotEmpty() ? folder + ": " + name : name, id);
+            if (path == choice) selected = id;
+        }
+    if (selected == 0) {  // a preset chosen before that is no longer in the folder
+        gfxEffect_.addItem(text + ", as loaded", 1);
+        gfxEffect_.setItemEnabled(1, false);
+        selected = 1;
+    }
+    // While the box has focus the user's own pick stays shown (its load may still be on the way).
+    if (focused && was > 1 && gfxEffect_.indexOfItemId(was) >= 0) selected = was;
+    gfxEffect_.setSelectedId(selected, juce::dontSendNotification);
 }
 
 void HS2Editor::setPage(int page, bool focusSelector) {
@@ -746,6 +802,7 @@ void HS2Editor::bindPages() {
     gfxSend1Row_->bind(slot > 0 ? gfxIndex(slot, 20) : -1);
     for (int t = 0; t < 2; ++t) seenTuneBank_[size_t(t)] = -1;
     gfxKnobSeen_.assign(gfxRows_.size(), reinterpret_cast<const void*>(1));  // none yet: every knob row rebinds
+    seenEffectSig_.clear();
     seenFxNames_.clear();
     refreshPages();
     for (auto* sec : {&settingsPage_, &arpPage_, &tuningPage_, &gfxPage_}) sec->repaint();
@@ -755,8 +812,7 @@ void HS2Editor::refreshPages() {
     // the effect in each slot, in the slot list
     juce::StringArray names;
     for (int k = 0; k < kGfxSlots; ++k) {
-        const auto fx = proc_.globalFxName(k);
-        names.add("Effect " + juce::String(k + 1) + ": " + (fx.isNotEmpty() ? fx : juce::String("empty")));
+        names.add("Effect " + juce::String(k + 1) + ": " + proc_.gfxSlotText(k));
     }
     if (names != seenFxNames_) {
         seenFxNames_ = names;
@@ -766,6 +822,7 @@ void HS2Editor::refreshPages() {
         gfxPage_.setTitle("Global effects, " + names[slot]);
         gfxPage_.repaint();
     }
+    fillEffectBox();
     // the effect knob rows: the effect's own knob names, choices and texts; unused knobs hidden. A knob rebinds when
     // the effect in the slot changes (a combi) or its table does (Delay follows Sync).
     {

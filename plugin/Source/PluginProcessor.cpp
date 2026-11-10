@@ -569,6 +569,10 @@ void HS2Processor::submit(const Request& r) {
                                                       q.part == r.part;
                                            }),
                             requests_.end());
+        else if (r.kind == Request::gfx)
+            requests_.erase(std::remove_if(requests_.begin(), requests_.end(),
+                                           [&](const Request& q) { return q.kind == Request::gfx && q.part == r.part; }),
+                            requests_.end());
         requests_.push_back(r);
     }
     requestPending_ = true;
@@ -618,6 +622,38 @@ void HS2Processor::requestClearPart(int part) {
     r.part = juce::jlimit(0, kNumParts - 1, part);
     r.explicitRequest = true;
     submit(r);
+}
+
+void HS2Processor::requestGlobalFx(int k, const juce::String& path) {
+    Request r;
+    r.kind = Request::gfx;
+    r.part = juce::jlimit(0, kGfxSlots - 1, k);
+    r.name = path;
+    r.explicitRequest = true;
+    submit(r);
+}
+
+juce::String HS2Processor::gfxChoice(int k) const {
+    std::lock_guard<std::mutex> lk(infoMu_);
+    return k >= 0 && k < kGfxSlots ? setup_.gfx[size_t(k)] : juce::String();
+}
+
+namespace {
+// "Delay/Mono Delay.fxp" -> "Mono Delay" (the original names the slot after the file, at most 31 characters)
+juce::String effectLabel(const juce::String& path) {
+    return path.fromLastOccurrenceOf("/", false, false).upToLastOccurrenceOf(".", false, false).substring(0, 31);
+}
+int quantType(float v) { return int(v * 128.9f); }
+}  // namespace
+
+juce::String HS2Processor::gfxSlotText(int k) const {
+    const auto type = globalFxName(k);
+    if (type.isEmpty()) return "empty";
+    std::lock_guard<std::mutex> lk(infoMu_);
+    const auto& label = gfxLabel_[size_t(k)];
+    if (gfxLabelType_[size_t(k)] == gfxType_[size_t(k)].load() && label.isNotEmpty() && label != type)
+        return label + " (" + type + ")";
+    return type;
 }
 
 void HS2Processor::setMemoryMode(int m) {
@@ -766,10 +802,28 @@ bool HS2Processor::prepareCommand(const Request& req, hs2::Content& content, Com
                 cmd.kind = Command::memoryMode;
                 cmd.value = memoryValue(req.index);
                 return true;
+            case Request::gfx: {
+                cmd.kind = Command::globalFx;
+                cmd.part = req.part;
+                if (req.name == "none") {
+                    cmd.empty = true;
+                    cmd.value = 1.f;
+                    return true;
+                }
+                EffectPreset fx;
+                if (!EffectPreset::read(content.root() / "Effects" / std::filesystem::path(req.name.toWideCharPointer()), fx))
+                    throw std::runtime_error("it is not in the content's Effects folder");
+                cmd.value = fx.type;
+                cmd.knobs = fx.knobs;
+                return true;
+            }
         }
     } catch (const std::exception& e) {
-        error = (req.kind == Request::combi ? "Could not load combi " : "Could not load patch ") +
-                juce::String(index + 1) + " of " + bankName + ": " + juce::String(e.what());
+        if (req.kind == Request::gfx)
+            error = "Could not load the effect " + effectLabel(req.name) + ": " + juce::String(e.what());
+        else
+            error = (req.kind == Request::combi ? "Could not load combi " : "Could not load patch ") +
+                    juce::String(index + 1) + " of " + bankName + ": " + juce::String(e.what());
         return false;
     }
     return false;
@@ -811,6 +865,10 @@ void HS2Processor::handleRequest(const Request& req) {
                 setup_.combiName = info.name;
                 infos_ = combiInfos;
                 combiName_ = info.name;
+                for (int k = 0; k < kGfxSlots; ++k) {
+                    gfxLabel_[size_t(k)] = fromLatin1(cmd.combi->globalFx[size_t(k)].name);
+                    gfxLabelType_[size_t(k)] = quantType(cmd.combi->globalFx[size_t(k)].params[0x13]);
+                }
                 int used = 0;
                 juce::StringArray warn;
                 for (const auto& pi : combiInfos)
@@ -828,6 +886,15 @@ void HS2Processor::handleRequest(const Request& req) {
                 status_ = partName + " cleared.";
                 break;
             case Request::memory: break;
+            case Request::gfx: {
+                const auto k = size_t(req.part);
+                setup_.gfx[k] = req.name;
+                gfxLabel_[k] = cmd.empty ? juce::String() : effectLabel(req.name);
+                gfxLabelType_[k] = cmd.empty ? 128 : quantType(cmd.value);
+                status_ = "Effect " + juce::String(req.part + 1) + ": " +
+                          (cmd.empty ? juce::String("no effect.") : "loaded " + gfxLabel_[k] + ".");
+                break;
+            }
         }
     }
     {
@@ -858,6 +925,8 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
 
     Setup setup = rb.setup;
     std::array<PatchInfo, kNumParts> infos;
+    std::array<juce::String, kGfxSlots> gfxLabels;
+    std::array<int, kGfxSlots> gfxLabelTypes{{-1, -1, -1, -1}};
     juce::String combiName;
     juce::StringArray errors;
     if (setup.combiBank >= 0) {
@@ -871,6 +940,10 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
         juce::String err;
         if (prepareCommand(r, *act->content, cmd, &inf, &infos, err)) {
             applyCommand(eng, cmd);
+            for (int k = 0; k < kGfxSlots; ++k) {
+                gfxLabels[size_t(k)] = fromLatin1(cmd.combi->globalFx[size_t(k)].name);
+                gfxLabelTypes[size_t(k)] = quantType(cmd.combi->globalFx[size_t(k)].params[0x13]);
+            }
             setup.combiIndex = inf.index;
             combiName = setup.combiName = inf.name;
         } else {
@@ -902,6 +975,24 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
             sp = Setup::Part();  // the combi's patch (if any) stays in this part
         }
     }
+    for (int k = 0; k < kGfxSlots; ++k) {  // the chosen effect presets, after the patches (as the user chose them)
+        auto& g = setup.gfx[size_t(k)];
+        if (g.isEmpty()) continue;
+        Request r;
+        r.kind = Request::gfx;
+        r.part = k;
+        r.name = g;
+        Command cmd;
+        juce::String err;
+        if (prepareCommand(r, *act->content, cmd, nullptr, nullptr, err)) {
+            applyCommand(eng, cmd);
+            gfxLabels[size_t(k)] = cmd.empty ? juce::String() : effectLabel(g);
+            gfxLabelTypes[size_t(k)] = cmd.empty ? 128 : quantType(cmd.value);
+        } else {
+            errors.add("Effect " + juce::String(k + 1) + ": " + err);
+            g.clear();
+        }
+    }
     for (int i = 0; i < kNumExposed; ++i)  // before the saved values: what the patches and combi set
         loadedVal_[size_t(i)] = eng.getParameter(engineIndex(i));
     for (int i = 0; i < kNumExposed; ++i)
@@ -923,6 +1014,8 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
         std::lock_guard<std::mutex> lk(infoMu_);
         setup_ = setup;
         infos_ = infos;
+        gfxLabel_ = gfxLabels;
+        gfxLabelType_ = gfxLabelTypes;
         combiName_ = combiName;
         juce::StringArray loaded;
         for (int p = 0; p < kNumParts; ++p)
@@ -943,6 +1036,7 @@ void HS2Processor::applyCommand(hs2::Engine& e, const Command& c) {
         case Command::loadCombi: e.loadCombi(*c.combi); break;
         case Command::clearPart: e.clearPart(c.part); break;
         case Command::memoryMode: e.setMemoryMode(c.value); break;
+        case Command::globalFx: e.loadGlobalFx(c.part, c.value, c.empty ? nullptr : c.knobs.data()); break;
     }
 }
 
@@ -1051,14 +1145,24 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     if (eng.ringOut() != ringOut_.load()) eng.setRingOut(ringOut_.load());
     if (eng.cutOnLoad() != cutOnLoad_.load()) eng.setCutOnLoad(cutOnLoad_.load());
     uint32_t replay = 0;  // channels whose new patch is now in place while controllers were held for it
+    uint32_t gfxLoaded = 0;  // global effect slots a combi or an effect preset set
+    const bool anyCommand = !cmdWork_.empty();
     for (const auto& c : cmdWork_) {
         applyCommand(eng, c);
+        if (c.kind == Command::loadCombi) gfxLoaded = 0xf;
+        else if (c.kind == Command::globalFx) gfxLoaded |= 1u << (c.part & 3);
         if (c.kind == Command::loadCombi) replay = 0xffff;
         else if (c.kind == Command::loadPatch || c.kind == Command::clearPart) replay |= 1u << (c.part & 15);
     }
     cmdWork_.clear();
-    if (replay == 0xffff)  // a combi: its global effects
+    if (anyCommand)  // a combi, an effect preset, or a patch that puts its own effect into an empty global slot
         for (int k = 0; k < kGfxSlots; ++k) gfxType_[size_t(k)] = eng.globalFxType(k);
+    for (int k = 0; k < kGfxSlots; ++k)  // the loaded effects' own values (Delete on a knob goes back to them)
+        if (gfxLoaded >> k & 1)
+            for (int j = 0; j < kGfxParams; ++j) {
+                const int i = gfxIndex(k, j);
+                loadedVal_[size_t(i)] = eng.getParameter(engineIndex(i));
+            }
     for (int p = 0; p < kNumParts; ++p)  // the loaded patches' own values (before the controllers replayed below)
         if (replay >> p & 1)
             for (int pp = 0; pp < kPartParams; ++pp) {
@@ -1241,6 +1345,12 @@ void HS2Processor::getStateInformation(juce::MemoryBlock& destData) {
         setup->setAttribute("combiIndex", rb.setup.combiIndex);
         setup->setAttribute("combiName", rb.setup.combiName);
     }
+    for (int k = 0; k < kGfxSlots; ++k)
+        if (rb.setup.gfx[size_t(k)].isNotEmpty()) {
+            auto* e = setup->createNewChildElement("GFX");
+            e->setAttribute("slot", k + 1);
+            e->setAttribute("effect", rb.setup.gfx[size_t(k)]);
+        }
     for (int p = 0; p < kNumParts; ++p) {
         const auto& sp = rb.setup.parts[size_t(p)];
         if (sp.kind == Setup::Part::fromCombi) continue;
@@ -1308,6 +1418,10 @@ void HS2Processor::setStateInformation(const void* data, int sizeInBytes) {
             rb.setup.combiBank = setup->getIntAttribute("combiBank", -1);
             rb.setup.combiIndex = setup->getIntAttribute("combiIndex", -1);
             rb.setup.combiName = setup->getStringAttribute("combiName");
+            for (auto* e : setup->getChildWithTagNameIterator("GFX")) {
+                const int k = e->getIntAttribute("slot", 0) - 1;
+                if (k >= 0 && k < kGfxSlots) rb.setup.gfx[size_t(k)] = e->getStringAttribute("effect");
+            }
             for (auto* e : setup->getChildWithTagNameIterator("PART")) {
                 const int p = e->getIntAttribute("part", 0) - 1;
                 if (p < 0 || p >= kNumParts) continue;

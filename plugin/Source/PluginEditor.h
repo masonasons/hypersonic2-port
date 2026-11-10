@@ -110,7 +110,10 @@ private:
     void bindPages();                            // the page rows to the selected part and effect slot
     void focusPage();                            // keyboard focus to the shown page's first control
     void refreshPages();                         // effect slot names, tuning scale lists
-    static void layoutRows(Section& s, const std::vector<ParamRow*>& rows, juce::Component* first, juce::Label* firstLabel);
+    // Rows in two columns, after head controls each on its own line (control, its label).
+    static void layoutRows(Section& s, const std::vector<ParamRow*>& rows,
+                           const std::vector<std::pair<juce::Component*, juce::Label*>>& heads);
+    void fillEffectBox();  // the Effect box: the content's effect presets, the selected slot's effect selected
     void rebuildBankBox();
     void rebuildList();
     void selectCurrentPatchInList();
@@ -166,8 +169,10 @@ private:
     // Pages beyond the patch and mixer: the selected part's settings, arpeggiator and microtuning, the global effects
     Section settingsPage_{"Part settings"}, arpPage_{"Arpeggiator"}, tuningPage_{"Microtuning"},
         gfxPage_{"Global effects"};
-    juce::Label pageLabel_, gfxSlotLabel_;
-    juce::ComboBox pageBox_, gfxSlot_;
+    juce::Label pageLabel_, gfxSlotLabel_, gfxEffectLabel_;
+    juce::ComboBox pageBox_, gfxSlot_, gfxEffect_;
+    std::vector<juce::String> effectPaths_;  // Effect box item id 3 + i: PatchLibrary::effects[i] (path under Effects)
+    juce::String seenEffectSig_;
     std::vector<std::unique_ptr<ParamRow>> settingsRows_, arpRows_, tuningRows_, gfxRows_;
     std::vector<int> settingsE_, arpE_, tuningE_, gfxJ_;  // ParamDefs index (kExtDefs e / global effect j) per row
     std::unique_ptr<ParamRow> linkRow_;

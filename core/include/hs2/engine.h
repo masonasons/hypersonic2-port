@@ -48,6 +48,10 @@ public:
     void clearPart(int part);  // FUN_10089c90 (a part that holds a patch becomes empty)
     // setChunk FUN_1008c270 with a combi: parts, global send FX, master volume, links (+ setup values when stored).
     void loadCombi(const Combi& combi);
+    // FUN_10085160: an effect preset (Effects\<category>\<name>.fxp) into global send FX slot k (0..3): its type and
+    // twelve knobs, the Hyperknob routes off, unmuted. knobs == nullptr empties the slot (type 1.0, as the original
+    // does when the file can't be read). The slot's VST parameters follow (FUN_10086cf0, as after a combi).
+    void loadGlobalFx(int k, float type, const float* knobs);
 
     // ---- per host block ----
     void processBlock(float* outLR, int frames, const MidiEvent* events, int numEvents,
