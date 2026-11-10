@@ -203,6 +203,8 @@ public:
 
     // The part the editor works on (kept with the state, so the editor reopens on it).
     std::atomic<int> selectedPart{0};
+    std::atomic<int> selectedPage{0};  // the editor's page (0 patch and mixer, 1 settings, 2 arp, 3 tuning, 4 effects)
+    std::atomic<int> selectedEffectSlot{0};  // the editor's global effect slot (0..3)
     // Bumped on every change the editor should pick up (load finished, library scanned, status changed).
     std::atomic<int> changeCounter{0};
     // Set when an explicitly requested load failed; the editor reads and clears it. (No spoken announcements:

@@ -91,6 +91,7 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
 1. **Part:**
    - Part selector. Each entry names its patch, for example "Part 3: Soft Rubber Bass" or "Part 4: empty". The patch browser, Current patch, Hyperknobs and Part mixer work on the selected part.
    - Clear part.
+   - Show: what the right side shows for the selected part: Patch and mixer (Current patch, Hyperknobs, Part mixer), Part settings, Arpeggiator, Microtuning, or Global effects. Ctrl+Tab and Ctrl+Shift+Tab change the page and move to its first control.
 2. **Patch browser:**
    - Search box. It searches patch, combi and bank names.
    - Bank filter. The combi banks ("120 Combis", "121 User Combis") hold combis.
@@ -105,6 +106,18 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
    - **Audio and MIDI settings** (standalone app): a window with Audio driver (ASIO on Windows when built with the ASIO SDK, Windows Audio, DirectSound; Core Audio on Mac), Output device, Sample rate, Buffer size (with its length in milliseconds), Refresh devices, Driver control panel (the ASIO driver's own settings), one "MIDI input: name" check box per MIDI input, a read-only Audio status box (device, rate, buffer, latency, errors) and Close. Changes apply at once and are saved; Escape closes the window.
 8. **Status:** a read-only text box with loading progress, errors, and features of the loaded patches that the port does not support yet.
 
+### Pages
+
+The right side of the window shows one page at a time (the Show box, or Ctrl+Tab / Ctrl+Shift+Tab):
+
+- **Patch and mixer:** Current patch, Part N Hyperknobs, Part N mixer (the sections listed above).
+- **Part N settings:** Output, Key Low, Key High, Key Crossfade, Velocity Low, Velocity High, Velocity Crossfade, Transpose, Fine Tune, Max Voices, Effect Sends (global or the patch's own), Pitch Bend Up / Down, Mono / Poly, Glide, Glide Time, and for parts 2 to 16 Link (the part also plays the notes of the part above it).
+- **Part N arpeggiator:** Arpeggiator on / off, Latch, Mode, Octaves, Steps, Sync, Rate, Gate, Swing.
+- **Part N microtuning:** two tunings (bank, scale and root note each; the bank and scale names come from the content's Tunings folder) and the depth.
+- **Global effects:** the effect slot (its name says which effect a combi put there), then Mute, Level, Pan, Aux Output, the effect's twelve knobs, and for effects 2 to 4 the send to effect 1.
+
+Settings with a fixed list of values (note names, Transpose, Arp Mode...) are choice boxes: Up and Down arrows choose. The others are sliders with the slider keys. Every one is also a host parameter (below), with the same value text.
+
 ### Keys
 
 | Key | Action |
@@ -115,6 +128,7 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
 | Ctrl+L | Patch list. Type letters to jump to a patch; Enter loads it into the selected part (a combi into all parts). |
 | Ctrl+Page Down / Ctrl+Page Up | Next / previous patch in the list |
 | Ctrl+I | Patch information of the selected part |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous page (Patch and mixer, Part settings, Arpeggiator, Microtuning, Global effects), focus on its first control |
 | Arrows, Page Up / Page Down, Home / End | Change the focused slider (Page Up / Page Down: a tenth of the range; Home / End: lowest / highest) |
 | Delete or Backspace | Return the focused slider to the patch's own setting (the value it loaded with; Master: the default volume) |
 | F1 | Keyboard help |
@@ -133,7 +147,7 @@ In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so tha
   - Status is a text box.
   - When an action the user asked for fails, focus moves to the Status box, so the error is read.
 - **Focus never sits on an unusable component.** If the window has focus but no control does, focus goes to the search box. Inside a DAW this only happens while the plugin's own window has focus, so the plugin never takes focus from the DAW.
-- **Readable by host generic UIs.** The master volume and, for each part, Mute, Level, Pan, the four effect sends and the six Hyperknobs are host parameters with names and value text ("Part 3 Level", "Part 3 Hyperknob 4"), so a host's generic UI or OSARA's parameter list can read them too. The Hyperknob names follow the loaded patches.
+- **Readable by host generic UIs.** The host parameters are the original Hypersonic 2's: Master Volume; per part Mute, Level, Pan, the four effect sends and the six Hyperknobs ("Part 3 Level", "Part 3 Hyperknob 4"); per part the settings, microtuning and arpeggiator ("Part 3 Transpose", "Part 3 Arp Rate"); Link for parts 2 to 16; and the four global effects' Mute, knobs, Aux Output, Level, Pan and sends ("Global Effect 2 Level"). 832 in all, each with value text from the original's own display ("+12", "C3", "Legato", "1/16"), so a host's generic UI or OSARA's parameter list can read and set them. A Hyperknob's value text starts with the patch's own knob name ("Thump, 50 %").
 
 ## How it works
 

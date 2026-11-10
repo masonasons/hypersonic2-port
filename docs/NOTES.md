@@ -1086,3 +1086,14 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   on patch changes (user's choice). NKS presets are written only when Komplete Kontrol is installed
   (`kompleteKontrolInstalled`: Windows HKLM\SOFTWARE\Native Instruments\Komplete Kontrol InstallDir with
   Komplete Kontrol.exe, or Program Files\Native Instruments\Komplete Kontrol; Mac the app in /Applications).
+- **The original's other parameters (user: "expose more parameters the original had"; 2026-11-09).** Host parameters
+  832 = the 209 before (unchanged numbers) + per part 32 settings (ParamDefs.h kExtDefs: VST j 4, 15..24, 27..47: the
+  part settings, microtuning, arpeggiator; Keep (25) and Level Trim (26) are not exposed, the original's VSTXML does
+  not name them either) + Link for parts 2..16 + 4 global effects x 24. Engine indices from the original's layout
+  (Engine::setParameter); defaults from `Engine::defaultParameters()` (the plugin ctor's). Value texts: the original's
+  display code via param_display.json (`tools/emu/gen_param_text.py` -> `plugin/Source/ParamText.h`); "<C>" (pan
+  centre) reads "centre"; microtuning bank / scale names from Tunings/ (PatchLibrary::tunings). Global effect knob
+  names are still "Knob N" (each effect's paramName / paramDisplay in the DLL is not captured yet). Editor: a Show box
+  in the Part section and Ctrl+Tab / Ctrl+Shift+Tab switch the right side between Patch and mixer, Part settings,
+  Arpeggiator, Microtuning and Global effects (ParamRow: a choice box for fixed lists, else a slider). UIA walk: the
+  page controls read with names and values ("Output = 1", "Arp Mode = Up", "Tuning 1 Scale" by name).

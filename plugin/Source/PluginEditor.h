@@ -58,6 +58,29 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
 };
 
+// One setting on a page: a label (hidden from screen readers; the control carries the title) and either a choice box
+// (a setting with a fixed list of values, e.g. Transpose, Arp Mode) or a slider (Fine Tune, effect knobs), bound to
+// an exposed host parameter. bind() moves it to another part or effect slot.
+class ParamRow : public juce::Component {
+public:
+    ParamRow(HS2Processor& p, const juce::String& title, const juce::String& description, int order);
+    void bind(int exposedIndex);  // -1: unbound
+    int index() const { return index_; }
+    void resized() override;
+
+private:
+    void showValue(float v);
+    HS2Processor& proc_;
+    int index_ = -1;
+    juce::Label label_;
+    juce::ComboBox box_;
+    KeySlider slider_;
+    std::vector<std::pair<float, juce::String>> choices_;
+    std::unique_ptr<juce::ParameterAttachment> boxAttach_;
+    std::unique_ptr<juce::SliderParameterAttachment> sliderAttach_;
+    bool updating_ = false;
+};
+
 class HS2Editor : public juce::AudioProcessorEditor, private juce::ListBoxModel, private juce::Timer {
 public:
     explicit HS2Editor(HS2Processor&);
@@ -82,6 +105,11 @@ private:
     void refreshFromProcessor();
     void refreshPartBox();
     void selectPart(int part);  // attaches the part's controls and shows its patch
+    void setPage(int page, bool focusSelector);  // 0 patch and mixer, 1 part settings, 2 arpeggiator, 3 microtuning, 4 effects
+    void bindPages();                            // the page rows to the selected part and effect slot
+    void focusPage();                            // keyboard focus to the shown page's first control
+    void refreshPages();                         // effect slot names, tuning scale lists
+    static void layoutRows(Section& s, const std::vector<ParamRow*>& rows, juce::Component* first, juce::Label* firstLabel);
     void rebuildBankBox();
     void rebuildList();
     void selectCurrentPatchInList();
@@ -133,6 +161,19 @@ private:
     std::array<juce::Label, kNumSends> sendLabels_;
     std::unique_ptr<juce::SliderParameterAttachment> levelAttach_, panAttach_;
     std::array<std::unique_ptr<juce::SliderParameterAttachment>, kNumSends> sendAttach_;
+
+    // Pages beyond the patch and mixer: the selected part's settings, arpeggiator and microtuning, the global effects
+    Section settingsPage_{"Part settings"}, arpPage_{"Arpeggiator"}, tuningPage_{"Microtuning"},
+        gfxPage_{"Global effects"};
+    juce::Label pageLabel_, gfxSlotLabel_;
+    juce::ComboBox pageBox_, gfxSlot_;
+    std::vector<std::unique_ptr<ParamRow>> settingsRows_, arpRows_, tuningRows_, gfxRows_;
+    std::vector<int> settingsE_, arpE_, tuningE_, gfxJ_;  // ParamDefs index (kExtDefs e / global effect j) per row
+    std::unique_ptr<ParamRow> linkRow_;
+    std::unique_ptr<ParamRow> gfxSend1Row_;  // shown for effects 2..4 (they feed effect 1)
+    int page_ = 0;
+    std::array<int, 2> seenTuneBank_{{-1, -1}};
+    juce::StringArray seenFxNames_;
 
     // Master
     KeySlider masterVolume_;
