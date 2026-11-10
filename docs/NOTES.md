@@ -1123,3 +1123,17 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   repeating at half level, as the original's own Delay does on an impulse (fx_oracle: echoes at 0.505 s, x 0.4975).
   Sync on reads "Delay, 2/4". A delay at Mix 0 % passes its input through (the original's too), so a send effect
   with Mix 0 adds the dry sound.
+- **Windows 7 build (user: a 64-bit Windows 7 machine, "cannot find CreateFile2"; 2026-11-10).** JUCE 9 (and 8) need
+  Windows 10 1607: the 0.4.0 app imports CreateFile2 (HarfBuzz), the USER32 per-window DPI functions, shcore
+  scaling, DXGI 1.2 / D3D11 / DirectComposition (JUCE's Direct2D renderer). JUCE 7.0.12 targets Vista and later, so
+  the Windows 7 build is the plugin against JUCE 7.0.12 (HS2_JUCE7, static C++ runtime: no VC++ redistributable or
+  UCRT update needed). Code differences behind JUCE_MAJOR_VERSION: Font(FontOptions), the install-presets message box
+  (JUCE 7: native OK / Cancel, OK = 0), the Ogg writer (preset previews), hs2plughost (addFormat, VST3 presets via
+  VST3PluginFormat::setStateFromVSTPresetFile). The per-channel program change patch applies to JUCE 7 unchanged (only
+  the header's folder moved). JUCE 7's ComboBoxAccessibilityHandler::getTitle returns the box's text, so every choice
+  box was read by its value ("1, combo box, 1"); the patch backports JUCE 8's getTitle (title, else text). Checked:
+  compare_with_hs2render.py all OK on the JUCE 7 build (program changes per channel, presets, state); a UIA walk reads
+  the same names as the JUCE 9 build (Output, Key Low, Effect slot, Effect...); check_win7_imports.py: all 346 imported
+  functions are declared for _WIN32_WINNT 0x0601 (the same check flags 18 functions in the JUCE 9 build), and the
+  only DLLs are kernel32, user32, gdi32, shell32, ole32, oleaut32, comdlg32, advapi32, shlwapi, winmm, imm32 and dxgi
+  (CreateDXGIFactory). Not tested on a real Windows 7 machine here.

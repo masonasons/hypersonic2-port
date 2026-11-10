@@ -147,8 +147,34 @@ jobs:
           path: dist/HS2-Port-${{ needs.version.outputs.version }}-Windows.zip
           if-no-files-found: error
 
+  # Windows 7, 8 and 8.1: the plugin against JUCE 7.0.12 (JUCE 9 needs Windows 10), C++ runtime linked in; the dist
+  # script fails when the build imports anything newer than Windows 7.
+  windows7:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache the build folder
+        uses: actions/cache@v4
+        with:
+          path: build_dist_win7
+          key: build-windows7-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-windows.ps1') }}-${{ github.run_id }}
+          restore-keys: build-windows7-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-windows.ps1') }}-
+
+      - name: Build, check and zip
+        shell: pwsh
+        run: tools\dist\dist-windows.ps1 -Windows7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HS2-Port-${{ needs.version.outputs.version }}-Windows7
+          path: dist/HS2-Port-${{ needs.version.outputs.version }}-Windows7.zip
+          if-no-files-found: error
+
   release:
-    needs: [version, mac, windows]
+    needs: [version, mac, windows, windows7]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
@@ -167,7 +193,8 @@ jobs:
           HS2 Port $VERSION
 
           - **Mac:** HS2-Port-$VERSION-Mac.zip: VST3, AU and Standalone app (macOS 12 or later, Apple Silicon and Intel; signed and notarized).
-          - **Windows:** HS2-Port-$VERSION-Windows.zip: VST3 and Standalone (64-bit).
+          - **Windows 10 and 11:** HS2-Port-$VERSION-Windows.zip: VST3 and Standalone (64-bit).
+          - **Windows 7, 8 and 8.1:** HS2-Port-$VERSION-Windows7.zip: the same plugin built for older Windows (64-bit).
 
           Each zip has an Install.txt. The plugin needs your own Hypersonic 2 content folder.
           EOF

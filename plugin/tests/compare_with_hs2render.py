@@ -19,8 +19,10 @@ import tempfile
 import numpy as np
 
 S = tempfile.mkdtemp(prefix='hs2plugtest_')
-HOST = r'C:\stuff\Hypersonic 2\build_plugin\plugin\hs2plughost_artefacts\Release\hs2plughost.exe'
-VST = r'C:\stuff\Hypersonic 2\build_plugin\plugin\HS2Port_artefacts\Release\VST3\HS2 Port.vst3'
+# HS2_BUILD: the plugin build folder to test (default build_plugin; build_win7 is the JUCE 7 / Windows 7 build)
+BUILD = os.path.join(r'C:\stuff\Hypersonic 2', os.environ.get('HS2_BUILD', 'build_plugin'))
+HOST = os.path.join(BUILD, 'plugin', 'hs2plughost_artefacts', 'Release', 'hs2plughost.exe')
+VST = os.path.join(BUILD, 'plugin', 'HS2Port_artefacts', 'Release', 'VST3', 'HS2 Port.vst3')
 REN = r'C:\stuff\Hypersonic 2\build_msvc\tools\cli\hs2render.exe'
 CDIR = r'C:\Hypersonic 2 Content\Patches\120 Combis'
 COMMON = ['--lead', '0.1', '--tail', '1']
@@ -210,8 +212,7 @@ print(f'load while a note sounds: after the load, peak with cut-on-load {np.abs(
       f'{np.abs(b[after]).max():.3g}  {"OK" if ok else "UNEXPECTED"}')
 # 10. Presets (PresetExport via hs2presets): .vstpreset and .nksf files load through the VST3 host's preset reader
 # (Steinberg's PresetFile::loadPreset) and play exactly what the patch / combi plays when loaded directly.
-PRESETS = os.path.join(r'C:\stuff\Hypersonic 2', 'build_plugin', 'plugin', 'hs2presets_artefacts', 'Release',
-                       'hs2presets.exe')
+PRESETS = os.path.join(BUILD, 'plugin', 'hs2presets_artefacts', 'Release', 'hs2presets.exe')
 run([PRESETS, '--content', r'C:\Hypersonic 2 Content', '--vst3', f('presets_vst3'), '--nks', f('presets_nks')])
 
 

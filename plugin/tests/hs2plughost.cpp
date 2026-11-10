@@ -93,6 +93,16 @@ bool setStateAttribute(juce::MemoryBlock& state, const juce::String& name, const
     return editState(state, [&](juce::XmlElement& x) { x.setAttribute(name, value); });
 }
 
+// A .vstpreset through the VST3 host's preset reader (JUCE 9: the instance's VST3 client; JUCE 7: VST3PluginFormat).
+bool setVst3Preset(juce::AudioPluginInstance& plugin, const juce::MemoryBlock& mb) {
+#if JUCE_MAJOR_VERSION >= 8
+    auto* client = plugin.getVST3Client();
+    return client != nullptr && client->setPreset(mb);
+#else
+    return juce::VST3PluginFormat::setStateFromVSTPresetFile(&plugin, mb);
+#endif
+}
+
 void writeWav(const juce::File& f, const std::vector<float>& lr, int sr) {
     juce::FileOutputStream os(f);
     if (!os.openedOk()) return;
@@ -155,7 +165,11 @@ int main(int argc, char* argv[]) {
     }
 
     juce::AudioPluginFormatManager fm;
+#if JUCE_MAJOR_VERSION >= 8
     fm.addFormat(std::make_unique<juce::VST3PluginFormat>());
+#else
+    fm.addFormat(new juce::VST3PluginFormat());
+#endif
     juce::OwnedArray<juce::PluginDescription> types;
     juce::KnownPluginList list;
     for (auto* format : fm.getFormats()) list.scanAndAddFile(pluginPath, true, types, *format);
@@ -235,8 +249,7 @@ int main(int argc, char* argv[]) {
             }
             mb = vst;
         }
-        auto* client = plugin->getVST3Client();
-        if (client == nullptr || mb.isEmpty() || !client->setPreset(mb)) {
+        if (mb.isEmpty() || !setVst3Preset(*plugin, mb)) {
             std::fprintf(stderr, "could not load the preset %s%s", presetIn.toRawUTF8(), juce::newLine.getDefault());
             return 1;
         }
@@ -319,8 +332,7 @@ int main(int argc, char* argv[]) {
             switched = true;
             const auto mb = readPreset(switchFile);
             const double t0 = juce::Time::getMillisecondCounterHiRes();
-            auto* client = plugin->getVST3Client();
-            if (client == nullptr || !client->setPreset(mb)) {
+            if (!setVst3Preset(*plugin, mb)) {
                 std::fprintf(stderr, "could not switch to %s%s", switchFile.toRawUTF8(), juce::newLine.getDefault());
                 return 1;
             }

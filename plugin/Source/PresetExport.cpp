@@ -387,11 +387,17 @@ bool writeOgg(const juce::File& file, const juce::AudioBuffer<float>& audio) {
     std::unique_ptr<juce::OutputStream> stream = file.createOutputStream();
     if (stream == nullptr) return false;
     juce::OggVorbisAudioFormat ogg;
+#if JUCE_MAJOR_VERSION >= 8
     auto writer = ogg.createWriterFor(stream, juce::AudioFormatWriterOptions{}
                                                   .withSampleRate(kPreviewRate)
                                                   .withNumChannels(2)
                                                   .withBitsPerSample(16)
                                                   .withQualityOptionIndex(2));  // 96 kbps
+#else  // JUCE 7: the writer takes the stream only when it is created
+    std::unique_ptr<juce::AudioFormatWriter> writer(
+        ogg.createWriterFor(stream.get(), kPreviewRate, 2, 16, {}, 2));  // 96 kbps
+    if (writer != nullptr) stream.release();
+#endif
     return writer != nullptr && writer->writeFromAudioSampleBuffer(audio, 0, audio.getNumSamples());
 }
 

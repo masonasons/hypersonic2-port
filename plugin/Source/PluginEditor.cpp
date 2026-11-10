@@ -5,6 +5,15 @@
 
 namespace hs2port {
 
+// A font of `height` in both JUCE 9 (FontOptions) and JUCE 7 (the Windows 7 build).
+static juce::Font uiFont(float height, int style = juce::Font::plain) {
+#if JUCE_MAJOR_VERSION >= 8
+    return juce::Font(juce::FontOptions(height, style));
+#else
+    return juce::Font(height, style);
+#endif
+}
+
 namespace {
 const juce::Colour kBackground(0xff1e2126), kPanel(0xff2a2e35), kText(0xfff2f2f2), kAccent(0xff8fc6ff);
 
@@ -161,7 +170,7 @@ void Section::paint(juce::Graphics& g) {
     g.setColour(kAccent.withAlpha(0.6f));
     g.drawRoundedRectangle(r, 6.f, 1.f);
     g.setColour(kAccent);
-    g.setFont(juce::FontOptions(16.f, juce::Font::bold));
+    g.setFont(uiFont(16.f, juce::Font::bold));
     g.drawText(getTitle(), getLocalBounds().reduced(10, 4).removeFromTop(20), juce::Justification::centredLeft);
 }
 
@@ -510,7 +519,7 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
     for (auto* t : {&search_, &info_, &contentPath_, &status_}) {
         t->setColour(juce::TextEditor::backgroundColourId, kBackground);
         t->setColour(juce::TextEditor::textColourId, kText);
-        t->setFont(juce::FontOptions(15.f));
+        t->setFont(uiFont(15.f));
     }
 
     setResizable(true, true);
@@ -916,7 +925,7 @@ void HS2Editor::paintListBoxItem(int row, juce::Graphics& g, int width, int heig
     const auto& ref = library_->patches[size_t(filtered_[size_t(row)])];
     if (selected) g.fillAll(kAccent.withAlpha(0.35f));
     g.setColour(kText);
-    g.setFont(juce::FontOptions(15.f));
+    g.setFont(uiFont(15.f));
     g.drawText(rowText(row), 8, 0, width / 2, height, juce::Justification::centredLeft);
     if (const auto* b = library_->bank(ref.bank)) {
         g.setColour(kText.withAlpha(0.7f));
@@ -1212,6 +1221,8 @@ void HS2Editor::confirmInstallPresets() {
     msg << "\n"
         << "Presets installed here before are replaced; presets you saved yourself are kept. Copy-protected patches "
            "are left out. Progress and the result appear in the Status box.";
+    juce::Component::SafePointer<HS2Editor> safe(this);
+#if JUCE_MAJOR_VERSION >= 8
     const auto options = juce::MessageBoxOptions()
                              .withIconType(juce::MessageBoxIconType::QuestionIcon)
                              .withTitle("Install presets")
@@ -1219,9 +1230,21 @@ void HS2Editor::confirmInstallPresets() {
                              .withButton("Install", 1)
                              .withButton("Cancel", 0)
                              .withAssociatedComponent(this);
-    juce::Component::SafePointer<HS2Editor> safe(this);
+    constexpr int install = 1;
     juce::NativeMessageBox::showForOptionsAsync(options, [safe](int result) {
-        if (safe == nullptr || result != 1) return;
+#else  // JUCE 7: a native OK / Cancel box; OK is button index 0
+    msg << "\n\nOK installs them.";
+    const auto options = juce::MessageBoxOptions()
+                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
+                             .withTitle("Install presets")
+                             .withMessage(msg)
+                             .withButton("OK")
+                             .withButton("Cancel")
+                             .withAssociatedComponent(this);
+    constexpr int install = 0;
+    juce::NativeMessageBox::showAsync(options, [safe](int result) {
+#endif
+        if (safe == nullptr || result != install) return;
         safe->proc_.installPresets();
         safe->status_.grabKeyboardFocus();
     });
