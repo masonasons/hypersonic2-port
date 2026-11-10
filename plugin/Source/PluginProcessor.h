@@ -188,6 +188,10 @@ public:
     juce::String patchKnobName(int part, int k) const;  // the patch's own name, may be empty
     // Value text of exposed parameter i at v, and the reverse (the host's typed values).
     juce::String valueText(int i, float v) const;
+    // The text the plugin window shows for exposed parameter i: valueText without a global effect knob's name.
+    juce::String displayText(int i, float v) const;
+    // Global effect slot k's knob n (0..15) as the effect in the slot names and shows it; nullptr: unused / no effect.
+    const fxtext::Knob* gfxKnob(int k, int n) const;
     float valueFromText(int i, const juce::String& text) const;
     // The choices of a parameter that has a fixed list of values (value to set, text); empty for continuous ones.
     std::vector<std::pair<float, juce::String>> choices(int i) const;

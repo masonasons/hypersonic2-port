@@ -65,6 +65,7 @@ class ParamRow : public juce::Component {
 public:
     ParamRow(HS2Processor& p, const juce::String& title, const juce::String& description, int order);
     void bind(int exposedIndex);  // -1: unbound
+    void setRowTitle(const juce::String& title, const juce::String& description);
     int index() const { return index_; }
     void resized() override;
 
@@ -171,6 +172,7 @@ private:
     std::vector<int> settingsE_, arpE_, tuningE_, gfxJ_;  // ParamDefs index (kExtDefs e / global effect j) per row
     std::unique_ptr<ParamRow> linkRow_;
     std::unique_ptr<ParamRow> gfxSend1Row_;  // shown for effects 2..4 (they feed effect 1)
+    std::vector<const void*> gfxKnobSeen_;   // the knob table each effect knob row shows (rebind when it changes)
     int page_ = 0;
     std::array<int, 2> seenTuneBank_{{-1, -1}};
     juce::StringArray seenFxNames_;

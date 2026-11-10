@@ -26,7 +26,7 @@
 // reader (Steinberg's PresetFile::loadPreset) instead of a program change; the output starts at block 0.
 // --switch-preset "FILE@seconds": loads another preset while playing (as a host's preset menu does), at that time
 // after the start; the message loop runs for 100 ms after it.
-// --dump-params prints the names and value texts of Master, Part 1, Part 2 Link and Global Effect 1 at the end
+// --dump-params prints the names and value texts of Master, Part 1, Part 2 Link and the global effects at the end
 // (what a host lists).
 // --state-attr sets an attribute of the plugin's own state XML (e.g. ringOut=0) in the --state-in state before it is
 // restored (inside the host's VST3PluginState wrapper: IComponent, base64, then the plugin's copyXmlToBinary block).
@@ -339,7 +339,7 @@ int main(int argc, char* argv[]) {
     if (args.contains("--dump-params"))  // what a host's parameter list shows: names and value text (Hyperknobs only)
         for (auto* p : plugin->getParameters())
             if (p->getName(100).startsWith("Part 1 ") || p->getName(100).startsWith("Part 2 Link") ||
-                p->getName(100).startsWith("Global Effect 1 ") || p->getName(100) == "Master Volume")
+                p->getName(100).startsWith("Global Effect ") || p->getName(100) == "Master Volume")
                 std::printf("%s = %s%s", p->getName(100).toRawUTF8(), p->getCurrentValueAsText().toRawUTF8(),
                             juce::newLine.getDefault());
     if (stateOut.isNotEmpty()) {

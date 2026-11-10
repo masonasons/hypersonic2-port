@@ -114,7 +114,7 @@ The right side of the window shows one page at a time (the Show box, or Ctrl+Tab
 - **Part N settings:** Output, Key Low, Key High, Key Crossfade, Velocity Low, Velocity High, Velocity Crossfade, Transpose, Fine Tune, Max Voices, Effect Sends (global or the patch's own), Pitch Bend Up / Down, Mono / Poly, Glide, Glide Time, and for parts 2 to 16 Link (the part also plays the notes of the part above it).
 - **Part N arpeggiator:** Arpeggiator on / off, Latch, Mode, Octaves, Steps, Sync, Rate, Gate, Swing.
 - **Part N microtuning:** two tunings (bank, scale and root note each; the bank and scale names come from the content's Tunings folder) and the depth.
-- **Global effects:** the effect slot (its name says which effect a combi put there), then Mute, Level, Pan, Aux Output, the effect's twelve knobs, and for effects 2 to 4 the send to effect 1.
+- **Global effects:** the effect slot ("Effect 1: Hall Reverb": which effect a combi put there), then Mute, Level, Pan, Aux Output, the effect's own knobs by the original's names and texts (a Hall Reverb's Mix, Time, Pre Del, HF Damp, Low EQ, Hi EQ; "Pre Del = 5 ms"; knobs the effect doesn't use are left out), and for effects 2 to 4 the send to effect 1. A delay's Delay knob reads in seconds, or as a note value ("1/8") when its Sync is on.
 
 Settings with a fixed list of values (note names, Transpose, Arp Mode...) are choice boxes: Up and Down arrows choose. The others are sliders with the slider keys. Every one is also a host parameter (below), with the same value text.
 
@@ -147,7 +147,7 @@ In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so tha
   - Status is a text box.
   - When an action the user asked for fails, focus moves to the Status box, so the error is read.
 - **Focus never sits on an unusable component.** If the window has focus but no control does, focus goes to the search box. Inside a DAW this only happens while the plugin's own window has focus, so the plugin never takes focus from the DAW.
-- **Readable by host generic UIs.** The host parameters are the original Hypersonic 2's: Master Volume; per part Mute, Level, Pan, the four effect sends and the six Hyperknobs ("Part 3 Level", "Part 3 Hyperknob 4"); per part the settings, microtuning and arpeggiator ("Part 3 Transpose", "Part 3 Arp Rate"); Link for parts 2 to 16; and the four global effects' Mute, knobs, Aux Output, Level, Pan and sends ("Global Effect 2 Level"). 832 in all, each with value text from the original's own display ("+12", "C3", "Legato", "1/16"), so a host's generic UI or OSARA's parameter list can read and set them. A Hyperknob's value text starts with the patch's own knob name ("Thump, 50 %").
+- **Readable by host generic UIs.** The host parameters are the original Hypersonic 2's: Master Volume; per part Mute, Level, Pan, the four effect sends and the six Hyperknobs ("Part 3 Level", "Part 3 Hyperknob 4"); per part the settings, microtuning and arpeggiator ("Part 3 Transpose", "Part 3 Arp Rate"); Link for parts 2 to 16; and the four global effects' Mute, knobs, Aux Output, Level, Pan and sends ("Global Effect 2 Level"; a knob's value text starts with the effect's own name for it: "Global Effect 1 Knob 4 = Pre Del, 5 ms"). 832 in all, each with value text from the original's own display ("+12", "C3", "Legato", "1/16"), so a host's generic UI or OSARA's parameter list can read and set them. A Hyperknob's value text starts with the patch's own knob name ("Thump, 50 %").
 
 ## How it works
 

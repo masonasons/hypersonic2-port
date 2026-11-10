@@ -1097,3 +1097,17 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   in the Part section and Ctrl+Tab / Ctrl+Shift+Tab switch the right side between Patch and mixer, Part settings,
   Arpeggiator, Microtuning and Global effects (ParamRow: a choice box for fixed lists, else a slider). UIA walk: the
   page controls read with names and values ("Output = 1", "Arp Mode = Up", "Tuning 1 Scale" by name).
+- **Global effect knob names and texts (2026-11-09).** `tools/emu/sweep_fx_display.py` runs each of the 52 effects'
+  own paramName / paramDisplay (docs/engine/effects_table.json) in the emulator: per knob a fresh effect object (other
+  knobs at their constructor defaults), setParam(knob, k/1024) and paramDisplay for k = 0..1024, stored as the exact
+  texts run-length coded (docs/effect_display.json; no unit conversion, so "2 ms" stays "2 ms"). Knob numbers can skip
+  (most effects leave knob 2 unused unless it is Sync). A switch knob (2..8 texts) is tried at each text against every
+  other knob: 11 knobs follow Sync (the delays' Delay, Reverse Reverb Time, Step Flanger Step Rate, Wah / TalkBox Rate:
+  seconds or Hz when off, note values when on), recorded as cases; nothing follows a Mode switch.
+  `tools/emu/gen_fx_text.py` writes plugin/Source/FxText.h (UTF-8: the DLL's texts are Windows-1252, degree and cent
+  signs; "Cho<>Rev" is written "Cho/Rev" so a screen reader doesn't say "less than greater than"). Global effect VST
+  knob j (1..16) is the effect's knob j - 1 (sendFxParamIndex: element 0x18 + j, which the element passes to the
+  effect as knob j - 1); no effect has more than 12. The host parameter names stay "Global Effect k Knob n" (as the
+  Hyperknobs: names fixed so hosts don't re-read the list); the value text leads with the knob's name. All 100 factory
+  combis use only Long Reverb / Short Reverb (both Hall Reverb, type 1) as global effects, so the Sync cases can't be
+  shown through a factory combi.

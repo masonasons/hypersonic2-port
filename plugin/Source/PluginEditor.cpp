@@ -81,6 +81,14 @@ ParamRow::ParamRow(HS2Processor& p, const juce::String& title, const juce::Strin
     };
 }
 
+void ParamRow::setRowTitle(const juce::String& title, const juce::String& description) {
+    label_.setText(title, juce::dontSendNotification);
+    box_.setTitle(title);
+    box_.setDescription(description + " Up and Down arrows choose a value.");
+    slider_.setTitle(title);
+    slider_.setDescription(description + " " + kSliderKeys);
+}
+
 void ParamRow::bind(int i) {
     index_ = i;
     boxAttach_.reset();
@@ -106,13 +114,15 @@ void ParamRow::bind(int i) {
         box_.setVisible(false);
         slider_.setVisible(true);
         sliderAttach_ = std::make_unique<juce::SliderParameterAttachment>(param, slider_);
+        slider_.textFromValueFunction = [this](double v) { return proc_.displayText(index_, float(v)); };
         slider_.defaultValue = [this] { return double(proc_.loadedValue(index_)); };
+        slider_.updateText();
     }
 }
 
 // The choice that shows v: the one whose text is v's text, else the nearest value.
 void ParamRow::showValue(float v) {
-    const auto text = proc_.valueText(index_, v);
+    const auto text = proc_.displayText(index_, v);
     int best = -1;
     for (size_t k = 0; k < choices_.size() && best < 0; ++k)
         if (choices_[k].second == text) best = int(k);
@@ -565,7 +575,8 @@ void HS2Editor::resized() {
         for (auto& r2 : tuningRows_) rows.push_back(r2.get());
         layoutRows(tuningPage_, rows, nullptr, nullptr);
         rows.clear();
-        for (auto& r2 : gfxRows_) rows.push_back(r2.get());
+        for (auto& r2 : gfxRows_)
+            if (r2->isVisible()) rows.push_back(r2.get());
         if (gfxSend1Row_->isVisible()) rows.push_back(gfxSend1Row_.get());
         layoutRows(gfxPage_, rows, &gfxSlot_, &gfxSlotLabel_);
     }
@@ -734,6 +745,7 @@ void HS2Editor::bindPages() {
     gfxSend1Row_->setVisible(slot > 0);
     gfxSend1Row_->bind(slot > 0 ? gfxIndex(slot, 20) : -1);
     for (int t = 0; t < 2; ++t) seenTuneBank_[size_t(t)] = -1;
+    gfxKnobSeen_.assign(gfxRows_.size(), reinterpret_cast<const void*>(1));  // none yet: every knob row rebinds
     seenFxNames_.clear();
     refreshPages();
     for (auto* sec : {&settingsPage_, &arpPage_, &tuningPage_, &gfxPage_}) sec->repaint();
@@ -750,8 +762,34 @@ void HS2Editor::refreshPages() {
         seenFxNames_ = names;
         for (int k = 0; k < kGfxSlots; ++k) gfxSlot_.changeItemText(k + 1, names[k]);
         const int slot = juce::jlimit(0, kGfxSlots - 1, proc_.selectedEffectSlot.load());
+        gfxSlot_.setSelectedId(slot + 1, juce::dontSendNotification);  // shows the renamed text
         gfxPage_.setTitle("Global effects, " + names[slot]);
         gfxPage_.repaint();
+    }
+    // the effect knob rows: the effect's own knob names, choices and texts; unused knobs hidden. A knob rebinds when
+    // the effect in the slot changes (a combi) or its table does (Delay follows Sync).
+    {
+        const int slot = juce::jlimit(0, kGfxSlots - 1, proc_.selectedEffectSlot.load());
+        const auto fxName = proc_.globalFxName(slot);
+        bool relayout = false;
+        for (size_t r = 0; r < gfxRows_.size() && r < gfxKnobSeen_.size(); ++r) {
+            const int j = gfxJ_[r];
+            if (gfxDef(j).kind != GfxKind::knob) continue;
+            const auto* knob = proc_.gfxKnob(slot, j - 1);
+            if (knob == gfxKnobSeen_[r]) continue;
+            gfxKnobSeen_[r] = knob;
+            auto& row = *gfxRows_[r];
+            if (knob != nullptr) {
+                const auto name = juce::String::fromUTF8(knob->name);
+                row.setRowTitle(name, name + " of the " + fxName + " in effect slot " + juce::String(slot + 1) + ".");
+            }
+            row.bind(gfxIndex(slot, j));
+            if (row.isVisible() != (knob != nullptr)) {
+                row.setVisible(knob != nullptr);
+                relayout = true;
+            }
+        }
+        if (relayout) resized();
     }
     // a tuning scale list follows its bank
     const int p = part();

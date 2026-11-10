@@ -161,10 +161,33 @@ namespace {
 int quant129(float v) { return int(v * 128.9f); }  // the engine's bank / scale numbers (trunc(v * 128.9))
 }
 
+const fxtext::Knob* HS2Processor::gfxKnob(int k, int n) const {
+    if (k < 0 || k >= kGfxSlots) return nullptr;
+    return fxKnob(gfxType_[size_t(k)].load(), n,
+                  [this, k](int sw) { return exposed_[size_t(gfxIndex(k, 1 + sw))]->getValue(); });
+}
+
+juce::String HS2Processor::displayText(int i, float v) const {
+    if (i >= kGfxBase) {
+        const int k = (i - kGfxBase) / kGfxParams, j = (i - kGfxBase) % kGfxParams;
+        if (gfxDef(j).kind == GfxKind::knob) {
+            const auto* knob = gfxKnob(k, j - 1);
+            return knob != nullptr ? fxText(*knob, v) : percent(v);
+        }
+    }
+    return valueText(i, v);
+}
+
 juce::String HS2Processor::valueText(int i, float v) const {
     if (i >= kGfxBase) {
+        const int k = (i - kGfxBase) / kGfxParams;
         const auto& d = gfxDef((i - kGfxBase) % kGfxParams);
-        return d.kind == GfxKind::knob ? percent(v) : tableText(*d.table, v);
+        if (d.kind == GfxKind::knob) {  // "Pre Del, 20 ms": the effect's own knob name leads
+            if (const auto* knob = gfxKnob(k, (i - kGfxBase) % kGfxParams - 1))
+                return juce::String::fromUTF8(knob->name) + ", " + fxText(*knob, v);
+            return (gfxType_[size_t(k)].load() >= 128 ? "no effect, " : "unused, ") + percent(v);
+        }
+        return tableText(*d.table, v);
     }
     if (i >= kLinkBase)
         return v > 0.5f ? "on, plays part " + juce::String(i - kLinkBase + 1) + "'s notes" : juce::String("off");
@@ -196,6 +219,8 @@ std::vector<std::pair<float, juce::String>> HS2Processor::choices(int i) const {
     if (i >= kGfxBase) {
         const auto& d = gfxDef((i - kGfxBase) % kGfxParams);
         if (d.kind == GfxKind::table) out = tableChoices(*d.table);
+        else if (const auto* knob = gfxKnob((i - kGfxBase) / kGfxParams, (i - kGfxBase) % kGfxParams - 1))
+            out = fxChoices(*knob);
         return out;
     }
     if (i >= kLinkBase) return {{0.25f, "off"}, {0.75f, "on, plays part " + juce::String(i - kLinkBase + 1) + "'s notes"}};
@@ -228,7 +253,27 @@ std::vector<std::pair<float, juce::String>> HS2Processor::choices(int i) const {
 }
 
 float HS2Processor::valueFromText(int i, const juce::String& text) const {
-    const auto t = text.trim();
+    auto t = text.trim();
+    if (i >= kGfxBase && gfxDef((i - kGfxBase) % kGfxParams).kind == GfxKind::knob) {
+        if (const auto* knob = gfxKnob((i - kGfxBase) / kGfxParams, (i - kGfxBase) % kGfxParams - 1)) {
+            const juce::String name = juce::String::fromUTF8(knob->name) + ",";
+            if (t.startsWithIgnoreCase(name)) t = t.substring(name.length()).trim();  // "Pre Del, 20 ms"
+            for (int s = 0; s < knob->numSegs; ++s)  // a text as the effect shows it
+                if (juce::String::fromUTF8(knob->segs[s].text).equalsIgnoreCase(t))
+                    return float(knob->segs[s].from) / 1024.f;
+            const float want = numberIn(t);  // else the text whose number is nearest
+            int best = 0;
+            float bestD = 1e30f;
+            for (int s = 0; s < knob->numSegs; ++s) {
+                const float d = std::abs(numberIn(juce::String::fromUTF8(knob->segs[s].text)) - want);
+                if (d < bestD) {
+                    bestD = d;
+                    best = s;
+                }
+            }
+            return float(knob->segs[best].from) / 1024.f;
+        }
+    }
     for (const auto& [val, name] : choices(i))  // a choice by its name
         if (name.equalsIgnoreCase(t)) return val;
     const paramtext::Table* table = nullptr;

@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "FxText.h"
 #include "ParamText.h"
 
 namespace hs2port {
@@ -129,6 +130,42 @@ inline std::vector<std::pair<float, juce::String>> tableChoices(const paramtext:
         if (cb <= ca) continue;  // outside [lo, hi]
         const auto s = juce::String(t.segs[i].text).trim();
         out.push_back({(ca + cb) * 0.5f, s == "<C>" ? juce::String("centre") : s});
+    }
+    return out;
+}
+
+// ---- global effect knobs: the effect's own names and texts (FxText.h)
+
+inline int fxSample(float v) { return juce::jlimit(0, 1024, juce::roundToInt(v * 1024.f)); }
+
+// The table in force for knob `knob` of effect `type`; a knob that follows a switch knob (Delay follows Sync) takes the
+// case of the switch's value (switchValue(knob index) gives it). nullptr: no such effect, or the knob is unused.
+template <typename SwitchValue>
+const fxtext::Knob* fxKnob(int type, int knob, SwitchValue switchValue) {
+    const auto* e = fxtext::findEffect(type);
+    if (e == nullptr || knob < 0 || knob >= e->numKnobs || e->knobs[knob].name == nullptr) return nullptr;
+    const auto* k = &e->knobs[knob];
+    if (k->caseOn < 0) return k;
+    const int s = fxSample(switchValue(k->caseOn));
+    int c = 0;
+    while (c + 1 < k->numCases && k->caseFrom[c + 1] <= s) ++c;
+    return &k->cases[c];
+}
+
+inline juce::String fxText(const fxtext::Knob& k, float v) {
+    const int s = fxSample(v);
+    int i = 0;
+    while (i + 1 < k.numSegs && k.segs[i + 1].from <= s) ++i;
+    return juce::String::fromUTF8(k.segs[i].text);
+}
+
+// A knob with a short list of texts (Sync, Mode, note values): its choices, each at the middle of its samples.
+inline std::vector<std::pair<float, juce::String>> fxChoices(const fxtext::Knob& k) {
+    std::vector<std::pair<float, juce::String>> out;
+    if (k.numSegs > 32) return out;
+    for (int i = 0; i < k.numSegs; ++i) {
+        const int a = k.segs[i].from, b = i + 1 < k.numSegs ? k.segs[i + 1].from - 1 : 1024;
+        out.push_back({float((a + b) / 2) / 1024.f, juce::String::fromUTF8(k.segs[i].text)});
     }
     return out;
 }
