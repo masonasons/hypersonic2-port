@@ -9,6 +9,7 @@ Nothing from Steinberg is in this repository: the plugin reads an existing Hyper
 - `core/`: the engine (patches, voices, all element types, the 52 effects, arpeggiator, 16-part engine, combis).
   Checked sample for sample against the original DLL running in an emulator (`tools/emu/`).
 - `plugin/`: the JUCE plugin (VST3, AU, Standalone). Building, keyboard use and tests: `plugin/README.md`.
+- `schwung/`: the engine as a Schwung module for Ableton Move (four parts, screen reader). See `schwung/README.md`.
 - `tools/cli/`: `hs2render` (offline renders with the engine) and test tools.
 - `tools/emu/`, `tools/formats/`: the emulator oracles and file format readers (Python; need the original DLL).
 - `docs/NOTES.md`: everything found so far, open items included.

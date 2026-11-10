@@ -19,3 +19,5 @@ docs/engine/element_setter.c
 .vscode/
 # Distribution packages (tools/dist)
 /dist/
+# macOS Finder metadata
+.DS_Store

@@ -1,0 +1,99 @@
+{
+  "title": "Hypersonic 2",
+  "children": [
+    {
+      "title": "Overview",
+      "lines": [
+        "Hypersonic 2 engine,",
+        "four parts. Each part",
+        "listens on any MIDI",
+        "channel: by default",
+        "part 1 = channel 1 ..",
+        "part 4 = channel 4.",
+        "",
+        "Every part, patch and",
+        "element is editable.",
+        "Arps and tempo FX",
+        "follow Move's clock."
+      ]
+    },
+    {
+      "title": "Setup",
+      "lines": [
+        "Needs your own",
+        "Hypersonic 2 content",
+        "folder, copied into",
+        "this module's",
+        "content/ folder:",
+        " content/Patches",
+        " content/Samples",
+        " content/Wavetables",
+        " content/Drawbars",
+        " content/Effects",
+        " content/Tunings",
+        "",
+        "Set the slot's Recv",
+        "Ch to All and Fwd Ch",
+        "to Thru so all four",
+        "channels arrive."
+      ]
+    },
+    {
+      "title": "Controls",
+      "children": [
+        {
+          "title": "Home Screen",
+          "lines": [
+            "Jog: next/prev patch",
+            "Shift+Jog: bank",
+            "Shift+Click: next",
+            " part (1-4)",
+            "Click: menu (first",
+            " item: Active Part)",
+            "Back: leave module"
+          ]
+        },
+        {
+          "title": "Menus",
+          "lines": [
+            "Jog: move",
+            "Click: open, edit,",
+            " or run",
+            "Jog while editing:",
+            " change (Shift fine)",
+            "Menu: up a level",
+            "Shift+Click: up"
+          ]
+        },
+        {
+          "title": "Knobs",
+          "lines": [
+            "Knobs 1-6: the active",
+            "part's Hyperknobs",
+            "Knob 7: part level",
+            "Knob 8: part pan",
+            "Touch: speak value",
+            "Shift: fine steps"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Menu Map",
+      "lines": [
+        "Browse Patches",
+        "Part Setup",
+        "Hyperknobs",
+        "Elements (per type)",
+        "Arpeggiator",
+        "Keyboard",
+        "Voice and Glide",
+        "Microtuning",
+        "Patch Parameters",
+        "Patch Send Effects",
+        "Global Effects",
+        "Settings"
+      ]
+    }
+  ]
+}
