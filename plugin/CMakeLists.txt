@@ -1,7 +1,7 @@
 # Hypersonic 2 port as a JUCE plugin. Configure the top level with -DHS2_BUILD_PLUGIN=ON (MSVC on Windows,
 # Xcode / Apple Clang on Mac). The engine (hs2core) is the same library the CLI tools and oracle tests use.
 juce_add_plugin(HS2Port
-    VERSION 0.4.1
+    VERSION 0.4.2
     COMPANY_NAME "HS2 Port"
     BUNDLE_ID com.hs2port.HS2Port
     PLUGIN_MANUFACTURER_CODE Hs2p
