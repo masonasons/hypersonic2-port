@@ -55,7 +55,7 @@ Built on Apple Silicon with Xcode 27; the AU passes `auval`. The engine needs `-
 
 The version comes from `VERSION` in `plugin/CMakeLists.txt`.
 
-**Releases by CI.** `.github/workflows/release.yml` runs both scripts on GitHub Actions. Pushing a tag `v<version>` (it must match `VERSION`) builds the notarized Mac zip and the Windows zip and publishes them as a GitHub release; running the workflow by hand builds the zips as artifacts only. The Mac signing and notarization secrets are listed at the top of the workflow.
+**Releases by CI.** `.github/workflows/release.yml` runs both scripts on GitHub Actions. Pushing a tag `v<version>` (it must match `VERSION`) builds the notarized Mac zip, the Windows zips and the Ableton Move Schwung module (`schwung/build.sh`, after its host test) and publishes them as a GitHub release; running the workflow by hand builds them as artifacts only. The Mac signing and notarization secrets are listed at the top of the workflow.
 
 ## Content
 
