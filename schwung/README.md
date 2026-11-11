@@ -8,7 +8,7 @@ Nothing from Steinberg is included: the module reads your own Hypersonic 2 conte
 
 1. Build: `schwung/build.sh` (needs `aarch64-linux-gnu-g++` on PATH, e.g. Homebrew
    `messense/macos-cross-toolchains/aarch64-unknown-linux-gnu`, or Docker). Output: `dist/hypersonic2/` and
-   `dist/hypersonic2-module.tar.gz`. The C++ runtime is linked statically; the module needs glibc 2.25 or later.
+   `dist/hypersonic2-module.tar.gz`. libstdc++ is linked statically; the module needs glibc 2.34 or older (built on Ubuntu 22.04, `schwung/Dockerfile`).
 2. Install: `schwung/install.sh` (SSH to `ableton@move.local`, override with `MOVE_HOST`), or unpack the tarball into
    `/data/UserData/schwung/modules/sound_generators/`.
 3. Content: copy the *contents* of your Hypersonic 2 content folder into the module's `content/` folder so that
