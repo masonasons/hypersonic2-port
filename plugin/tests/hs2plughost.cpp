@@ -30,6 +30,8 @@
 // (what a host lists).
 // --state-gfx "slot=path" chooses an effect preset for a global effect slot in the --state-in state (slot 1..4, path
 // under the content's Effects folder, e.g. "1=Delay/Mono Delay.fxp", or "none"), as the Effect box does.
+// --state-edit "part:elem:idx=value,..." adds patch editor edits (the plugin's EDIT entries: elem -1 = a patch send effect
+// parameter j, 0 = the patch, 1.. = an element) to the --state-in state, as the editor's patch pages make them.
 // --state-attr sets an attribute of the plugin's own state XML (e.g. ringOut=0) in the --state-in state before it is
 // restored (inside the host's VST3PluginState wrapper: IComponent, base64, then the plugin's copyXmlToBinary block).
 // The play head reports 120 bpm, stopped, position 0, 4/4 (as hs2render --host "-1:120:0").
@@ -210,6 +212,23 @@ int main(int argc, char* argv[]) {
                     for (int i = params->getNumChildElements(); --i >= 0;)
                         if (params->getChildElement(i)->getStringAttribute("id").startsWith(prefix))
                             params->removeChildElement(params->getChildElement(i), true);
+                }
+            })) {
+            std::fprintf(stderr, "could not change the state%s", juce::newLine.getDefault());
+            return 1;
+        }
+        const auto edits = opt("--state-edit", {});
+        if (edits.isNotEmpty() && !editState(mb, [&](juce::XmlElement& x) {
+                auto* setup = x.getChildByName("SETUP");
+                if (setup == nullptr) setup = x.createNewChildElement("SETUP");
+                for (const auto& item : juce::StringArray::fromTokens(edits, ",", {})) {
+                    const auto addr = juce::StringArray::fromTokens(item.upToFirstOccurrenceOf("=", false, false), ":", {});
+                    if (addr.size() != 3) continue;
+                    auto* e = setup->createNewChildElement("EDIT");
+                    e->setAttribute("part", addr[0].getIntValue());
+                    e->setAttribute("elem", addr[1].getIntValue());
+                    e->setAttribute("idx", addr[2].getIntValue());
+                    e->setAttribute("value", item.fromFirstOccurrenceOf("=", false, false).getDoubleValue());
                 }
             })) {
             std::fprintf(stderr, "could not change the state%s", juce::newLine.getDefault());

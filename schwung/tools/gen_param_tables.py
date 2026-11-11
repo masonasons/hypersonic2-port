@@ -1,9 +1,9 @@
-"""Generate schwung/src/param_tables.h: the name and value-text table of every patch and element parameter, from
+"""Generate plugin/Source/param_tables.h: the name and value-text table of every patch and element parameter, from
 docs/param_display.json (the original's own display texts, captured by tools/emu/sweep_display.py in the emulator).
 
-The Schwung module shows and speaks these texts for the patch and element editors.
+The Schwung module and the plugin show and speak these texts in their patch and element editors.
 
-Usage: python3 -I schwung/tools/gen_param_tables.py    (rewrites schwung/src/param_tables.h)
+Usage: python3 -I schwung/tools/gen_param_tables.py    (rewrites plugin/Source/param_tables.h)
 
 Kinds (as in tools/emu/gen_param_text.py):
   enum     {from, text} thresholds (blank / emulator-error texts dropped: such values show the text below them)
@@ -15,7 +15,7 @@ import os
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
 SRC = os.path.join(ROOT, 'docs', 'param_display.json')
-OUT = os.path.join(ROOT, 'schwung', 'src', 'param_tables.h')
+OUT = os.path.join(ROOT, 'plugin', 'Source', 'param_tables.h')
 
 
 def cstr(s):

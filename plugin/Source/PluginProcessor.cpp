@@ -45,6 +45,8 @@ PatchInfo makeInfo(const hs2::Patch& patch, int bank, int index, const juce::Str
     inf.author = fromLatin1(patch.author);
     for (int k = 0; k < kNumKnobs; ++k) inf.knobNames[size_t(k)] = fromLatin1(patch.quickControls[size_t(k)]);
     for (const auto& w : warnings) inf.warnings.add(juce::String(w));
+    for (size_t r = 0; r < patch.elements.size(); ++r)
+        inf.elements.push_back({int(r) + 1, int(hs2::elementType(patch.elements[r])), fromLatin1(patch.elements[r].name)});
     return inf;
 }
 
@@ -168,7 +170,7 @@ const fxtext::Knob* HS2Processor::gfxKnob(int k, int n) const {
 }
 
 juce::String HS2Processor::displayText(int i, float v) const {
-    if (i >= kGfxBase) {
+    if (i >= kGfxBase && i < kPartExtraBase) {
         const int k = (i - kGfxBase) / kGfxParams, j = (i - kGfxBase) % kGfxParams;
         if (gfxDef(j).kind == GfxKind::knob) {
             const auto* knob = gfxKnob(k, j - 1);
@@ -179,6 +181,7 @@ juce::String HS2Processor::displayText(int i, float v) const {
 }
 
 juce::String HS2Processor::valueText(int i, float v) const {
+    if (i >= kPartExtraBase) return (i - kPartExtraBase) % kPartExtras == pxKeep ? keepText(v) : levelTrimText(v);
     if (i >= kGfxBase) {
         const int k = (i - kGfxBase) / kGfxParams;
         const auto& d = gfxDef((i - kGfxBase) % kGfxParams);
@@ -216,6 +219,10 @@ juce::String HS2Processor::valueText(int i, float v) const {
 
 std::vector<std::pair<float, juce::String>> HS2Processor::choices(int i) const {
     std::vector<std::pair<float, juce::String>> out;
+    if (i >= kPartExtraBase) {
+        if ((i - kPartExtraBase) % kPartExtras == pxKeep) return {{0.25f, keepText(0.f)}, {0.75f, keepText(1.f)}};
+        return levelTrimChoices();
+    }
     if (i >= kGfxBase) {
         const auto& d = gfxDef((i - kGfxBase) % kGfxParams);
         if (d.kind == GfxKind::table) out = tableChoices(*d.table);
@@ -254,6 +261,19 @@ std::vector<std::pair<float, juce::String>> HS2Processor::choices(int i) const {
 
 float HS2Processor::valueFromText(int i, const juce::String& text) const {
     auto t = text.trim();
+    if (i >= kPartExtraBase) {
+        for (const auto& [val, name] : choices(i))
+            if (name.equalsIgnoreCase(t)) return val;
+        if ((i - kPartExtraBase) % kPartExtras == pxKeep) return t.startsWithIgnoreCase("k") || numberIn(t) > 0.5f ? 1.f : 0.f;
+        int best = 0;  // Level Trim: the value whose text holds the nearest number
+        float bestD = 1e30f;
+        for (int k = 0; k <= 1024; ++k)
+            if (const float d = std::abs(numberIn(levelTrimText(float(k) / 1024.f)) - numberIn(t)); d < bestD) {
+                bestD = d;
+                best = k;
+            }
+        return float(best) / 1024.f;
+    }
     if (i >= kGfxBase && gfxDef((i - kGfxBase) % kGfxParams).kind == GfxKind::knob) {
         if (const auto* knob = gfxKnob((i - kGfxBase) / kGfxParams, (i - kGfxBase) % kGfxParams - 1)) {
             const juce::String name = juce::String::fromUTF8(knob->name) + ",";
@@ -324,6 +344,93 @@ juce::String HS2Processor::partSummary(int part) const {
     return "Part " + juce::String(part + 1) + ": " + (inf.empty ? juce::String("empty") : inf.name);
 }
 
+// ------------------------------------------------------------------------------------------------ patch editor
+
+void HS2Processor::fillSnapshot(hs2::Engine& e, int part, int serial, PartSnapshot& out) {
+    out.part = part;
+    out.serial = serial;
+    for (int i = 0; i < 256; ++i) out.patch[size_t(i)] = e.getPartSetter(part, 0, i);
+    const int n = std::min(int(e.part(part).patch().elements.size()), 64);
+    out.types.resize(size_t(n));
+    out.elements.resize(size_t(n));
+    for (int r = 0; r < n; ++r) {
+        auto& el = out.elements[size_t(r)];
+        for (int i = 0; i < 256; ++i) el[size_t(i)] = e.getPartSetter(part, r + 1, i);
+        out.types[size_t(r)] = int(el[1] * 15.9f);  // element type = trunc(v * 15.9)
+    }
+    for (int k = 0; k < kSendFxSlots * kSendFxParams; ++k)
+        out.sends[size_t(k)] = e.getParameter(part * hs2::Engine::kParamsPerPart + kSendFxFirstJ + k);
+    for (int s = 0; s < kSendFxSlots; ++s) out.sendTypes[size_t(s)] = int(e.getPartSetter(part, 0x41 + s, 0x13) * 128.9f);
+}
+
+bool HS2Processor::snapshot(int part, PartSnapshot& out) {
+    if (part < 0 || part >= kNumParts) return false;
+    // No audio running (a host that stopped processing): read the engine directly; the audio thread only try-locks.
+    if (juce::Time::getMillisecondCounter() - lastBlockMs_.load() > 500) {
+        const juce::SpinLock::ScopedLockType sl(swapLock_);
+        if (active_ == nullptr) return false;
+        fillSnapshot(*active_->engine, part, loadSerial_[size_t(part)].load(), out);
+        return true;
+    }
+    const juce::SpinLock::ScopedLockType sl(snapLock_);
+    if (snap_.part != part) return false;
+    out = snap_;
+    return true;
+}
+
+void HS2Processor::setEdit(int part, int elem, int idx, float value) {
+    if (part < 0 || part >= kNumParts) return;
+    value = juce::jlimit(0.f, 1.f, value);
+    float original = value;
+    {
+        PartSnapshot snap;
+        if (snapshot(part, snap)) original = snap.get(elem, idx);
+    }
+    {
+        std::lock_guard<std::mutex> lk(infoMu_);
+        auto& m = edits_[size_t(part)];
+        const auto key = std::make_pair(elem, idx);
+        if (auto it = m.find(key); it != m.end()) it->second.value = value;
+        else m[key] = {value, original};
+    }
+    Command c;
+    c.kind = Command::edit;
+    c.part = part;
+    c.elem = elem;
+    c.idx = idx;
+    c.value = value;
+    const juce::SpinLock::ScopedLockType cl(cmdLock_);
+    cmdQueue_.push_back(std::move(c));
+}
+
+void HS2Processor::resetEdit(int part, int elem, int idx) {
+    if (part < 0 || part >= kNumParts) return;
+    Command c;
+    {
+        std::lock_guard<std::mutex> lk(infoMu_);
+        auto& m = edits_[size_t(part)];
+        const auto it = m.find({elem, idx});
+        if (it == m.end()) return;
+        c.value = it->second.original;
+        m.erase(it);
+    }
+    c.kind = Command::edit;
+    c.part = part;
+    c.elem = elem;
+    c.idx = idx;
+    const juce::SpinLock::ScopedLockType cl(cmdLock_);
+    cmdQueue_.push_back(std::move(c));
+}
+
+EditMap HS2Processor::edits(int part) const {
+    std::lock_guard<std::mutex> lk(infoMu_);
+    return part >= 0 && part < kNumParts ? edits_[size_t(part)] : EditMap();
+}
+
+std::shared_ptr<hs2::Content> HS2Processor::editorContent() const {
+    return const_cast<SharedContent&>(*sharedContent_).get(settings_->contentFolder());
+}
+
 // ------------------------------------------------------------------------------------------------ loader thread
 
 class HS2Processor::LoaderThread : public juce::Thread {
@@ -381,7 +488,6 @@ HS2Processor::HS2Processor()
     for (auto& c : ccLast_) c.fill(-1);
     // Host parameters: master volume, then per part Mute, Level, Pan, Sends 1-4, Hyperknobs 1-6. Defaults are the
     // engine's own (FUN_1008bad0); the loaded patches set the real values.
-    const double masterScale = (8.0 - 2.2 * 0.33) / 4.0;  // master gain = scale * v^2 (hype 0.33, the default)
     auto pctParse = [](const juce::String& t) { return numberIn(t) / 100.f; };
     auto add = [this](int i, std::unique_ptr<EngineParameter> p) {
         exposed_[size_t(i)] = p.get();
@@ -389,7 +495,10 @@ HS2Processor::HS2Processor()
     };
     add(0, std::make_unique<EngineParameter>(
                *this, 0, "master", "Master Volume", 0.5f,
-               [masterScale](float v) { return gainText(masterScale * double(v) * double(v)); }, pctParse));
+               [this](float v) {  // master gain = (8 - 2.2 * Hype) / 4 * v^2
+                   return gainText((8.0 - 2.2 * double(hype_.load())) / 4.0 * double(v) * double(v));
+               },
+               pctParse));
     for (int part = 0; part < kNumParts; ++part) {
         const juce::String pid = "p" + juce::String(part + 1) + "_", pname = "Part " + juce::String(part + 1) + " ";
         add(exposedIndex(part, ppMute),
@@ -461,6 +570,12 @@ HS2Processor::HS2Processor()
         for (int j = 0; j < kGfxParams; ++j)
             addExt(gfxIndex(k, j), "gfx" + juce::String(k + 1) + "_" + gfxDef(j).id,
                    "Global Effect " + juce::String(k + 1) + " " + gfxDef(j).name);
+    for (int part = 0; part < kNumParts; ++part) {
+        addExt(partExtraIndex(part, pxKeep), "p" + juce::String(part + 1) + "_keep",
+               "Part " + juce::String(part + 1) + " Keep Settings");
+        addExt(partExtraIndex(part, pxTrim), "p" + juce::String(part + 1) + "_trim",
+               "Part " + juce::String(part + 1) + " Level Trim");
+    }
     for (auto& t : gfxType_) t = 128;
 
     for (int i = 0; i < kNumExposed; ++i) {
@@ -474,6 +589,10 @@ HS2Processor::HS2Processor()
     interleaved_.assign(size_t(kChunkFrames) * 2, 0.f);
     cmdQueue_.reserve(64);
     cmdWork_.reserve(64);
+    for (auto* snap : {&snapWork_, &snap_}) {  // at most 64 elements: the audio thread never allocates for them
+        snap->types.reserve(64);
+        snap->elements.reserve(64);
+    }
 
     // As the original: a new instance loads the default patch 084/0 ("Welcome ToThe Matrix", HS2 Preview Patches) into
     // part 1 (plugin ctor 1008bad0: +0xb6d0 = 0x15400, loaded by the idle function 1008d2b0 through the program change
@@ -494,6 +613,13 @@ HS2Processor::~HS2Processor() {
     presetCancel_ = true;
     if (presetJob_ != nullptr) presetJob_->stopThread(20000);
     loader_->stopThread(10000);
+}
+
+void HS2Processor::rescanContent() {
+    setStatus("Scanning the content folder...");
+    reportRescan_ = true;
+    rescanRequested_ = true;
+    loader_->notify();
 }
 
 void HS2Processor::installPresets() {
@@ -708,6 +834,8 @@ void HS2Processor::rescanLibrary() {
     if (n == 0)
         setStatus("No patches found in the content folder " + folder.getFullPathName() +
                   ". Use the Choose content folder button in Settings.");
+    else if (reportRescan_.exchange(false))
+        setStatus("Content folder scanned: " + juce::String(int(n)) + " patches and combis.");
     ++changeCounter;
 }
 
@@ -739,6 +867,7 @@ bool HS2Processor::prepareCommand(const Request& req, hs2::Content& content, Com
         hs2::PatchPlayer tmp(content, float(sampleRate_.load()));
         tmp.setMemoryMode(mem);
         tmp.load(p);
+        if (preload_.load()) tmp.preloadSamples();  // decoded samples stay in the shared sample bank cache
         return tmp.warnings();
     };
     try {
@@ -854,12 +983,14 @@ void HS2Processor::handleRequest(const Request& req) {
             case Request::patch:
                 setup_.parts[size_t(req.part)] = {Setup::Part::patch, req.bank, info.index, info.name};
                 infos_[size_t(req.part)] = info;
+                edits_[size_t(req.part)].clear();  // edits belong to the patch they were made on
                 status_ = partName + ": loaded " + info.name + ".";
                 if (!info.warnings.isEmpty())
                     status_ << " Parts of this patch are not supported yet: " << info.warnings.joinIntoString("; ");
                 break;
             case Request::combi: {
                 setup_ = Setup();
+                for (auto& e : edits_) e.clear();
                 setup_.combiBank = req.bank;
                 setup_.combiIndex = info.index;
                 setup_.combiName = info.name;
@@ -883,6 +1014,7 @@ void HS2Processor::handleRequest(const Request& req) {
             case Request::clear:
                 setup_.parts[size_t(req.part)] = {Setup::Part::cleared, -1, -1, {}};
                 infos_[size_t(req.part)] = PatchInfo();
+                edits_[size_t(req.part)].clear();
                 status_ = partName + " cleared.";
                 break;
             case Request::memory: break;
@@ -922,6 +1054,8 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
     if (mm != 1) eng.setMemoryMode(memoryValue(mm));  // MID is the engine's default
     eng.setRingOut(ringOut_.load());
     eng.setCutOnLoad(cutOnLoad_.load());
+    const SetupValues setupValues = wantedSetup();
+    applySetup(eng, SetupValues(), setupValues);
 
     Setup setup = rb.setup;
     std::array<PatchInfo, kNumParts> infos;
@@ -998,10 +1132,20 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
     for (int i = 0; i < kNumExposed; ++i)
         if (rb.valid[size_t(i)] && eng.getParameter(engineIndex(i)) != rb.values[size_t(i)])
             eng.setParameter(engineIndex(i), rb.values[size_t(i)]);
+    // The patch editor's edits, on the patches they were made on (a part that failed to load keeps none).
+    std::array<EditMap, kNumParts> edits;
+    for (int p = 0; p < kNumParts; ++p) {
+        if (infos[size_t(p)].empty) continue;
+        for (const auto& [key, ed] : rb.edits[size_t(p)]) {
+            applyEdit(eng, p, key.first, key.second, ed.value);
+            edits[size_t(p)][key] = ed;
+        }
+    }
 
     {
         const juce::SpinLock::ScopedLockType sl(swapLock_);
         std::swap(active_, act);
+        appliedSetup_ = setupValues;  // what the new engine has
         for (int i = 0; i < kNumExposed; ++i) engineVal_[size_t(i)] = active_->engine->getParameter(engineIndex(i));
         for (int k = 0; k < kGfxSlots; ++k) gfxType_[size_t(k)] = active_->engine->globalFxType(k);
         resyncAll_ = true;
@@ -1013,6 +1157,7 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
     {
         std::lock_guard<std::mutex> lk(infoMu_);
         setup_ = setup;
+        edits_ = edits;
         infos_ = infos;
         gfxLabel_ = gfxLabels;
         gfxLabelType_ = gfxLabelTypes;
@@ -1037,7 +1182,31 @@ void HS2Processor::applyCommand(hs2::Engine& e, const Command& c) {
         case Command::clearPart: e.clearPart(c.part); break;
         case Command::memoryMode: e.setMemoryMode(c.value); break;
         case Command::globalFx: e.loadGlobalFx(c.part, c.value, c.empty ? nullptr : c.knobs.data()); break;
+        case Command::edit: applyEdit(e, c.part, c.elem, c.idx, c.value); break;
     }
+}
+
+void HS2Processor::applyEdit(hs2::Engine& e, int part, int elem, int idx, float v) {
+    if (elem == kSendFxElem) e.setParameter(part * hs2::Engine::kParamsPerPart + idx, v);  // a patch send effect
+    else e.setPartSetter(part, elem, idx, v);
+}
+
+HS2Processor::SetupValues HS2Processor::wantedSetup() const {
+    SetupValues s;
+    s.hype = hype_.load();
+    s.velSens = velSens_.load();
+    s.touchSens = touchSens_.load();
+    s.semis = tuneSemis_.load();
+    s.cents = tuneCents_.load();
+    return s;
+}
+
+// Only what differs from `from` (the engine's defaults for a new engine), so a default setup renders exactly as before.
+void HS2Processor::applySetup(hs2::Engine& e, const SetupValues& from, const SetupValues& to) {
+    if (to.hype != from.hype) e.setHype(to.hype);
+    if (to.velSens != from.velSens) e.setVelSens(to.velSens);
+    if (to.touchSens != from.touchSens) e.setTouchSens(to.touchSens);
+    if (to.semis != from.semis || to.cents != from.cents) e.setMasterTune(to.semis, float(to.cents) / 100.f);
 }
 
 // ---- parameter sync
@@ -1059,6 +1228,7 @@ HS2Processor::Rebuild HS2Processor::currentRebuild() const {
     {
         std::lock_guard<std::mutex> lk(infoMu_);
         rb.setup = setup_;
+        rb.edits = edits_;
     }
     rb.values = currentValues(&rb.valid);
     return rb;
@@ -1144,6 +1314,10 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
     }
     if (eng.ringOut() != ringOut_.load()) eng.setRingOut(ringOut_.load());
     if (eng.cutOnLoad() != cutOnLoad_.load()) eng.setCutOnLoad(cutOnLoad_.load());
+    if (const auto want = wantedSetup(); want != appliedSetup_) {
+        applySetup(eng, appliedSetup_, want);
+        appliedSetup_ = want;
+    }
     uint32_t replay = 0;  // channels whose new patch is now in place while controllers were held for it
     uint32_t gfxLoaded = 0;  // global effect slots a combi or an effect preset set
     const bool anyCommand = !cmdWork_.empty();
@@ -1154,6 +1328,8 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
         if (c.kind == Command::loadCombi) replay = 0xffff;
         else if (c.kind == Command::loadPatch || c.kind == Command::clearPart) replay |= 1u << (c.part & 15);
     }
+    for (int p = 0; p < kNumParts; ++p)  // the patch editor's copy follows a new patch
+        if (replay >> p & 1) ++loadSerial_[size_t(p)];
     cmdWork_.clear();
     if (anyCommand)  // a combi, an effect preset, or a patch that puts its own effect into an empty global slot
         for (int k = 0; k < kGfxSlots; ++k) gfxType_[size_t(k)] = eng.globalFxType(k);
@@ -1190,6 +1366,17 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
                 events_.push_back(e);
             }
     }
+    if (panic_.exchange(false))  // All notes off: sustain off, all sound off, all notes off on every channel
+        for (int ch = 0; ch < 16; ++ch)
+            for (const int cc : {64, 120, 123})
+                if (events_.size() < size_t(kEventCapacity)) {
+                    hs2::MidiEvent e;
+                    e.offset = 0;
+                    e.data[0] = uint8_t(0xb0 | ch);
+                    e.data[1] = uint8_t(cc);
+                    e.data[2] = 0;
+                    events_.push_back(e);
+                }
     for (const auto meta : midi) {
         const auto* d = meta.data;
         if (meta.numBytes < 1 || d[0] < 0x80 || d[0] >= 0xf0) continue;
@@ -1283,6 +1470,15 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
         }
     }
 
+    // The patch editor's copy of the part it shows (every third block).
+    lastBlockMs_ = juce::Time::getMillisecondCounter();
+    if (const int ep = editPart_.load(); ep >= 0 && ep < kNumParts && --snapCountdown_ <= 0) {
+        snapCountdown_ = 3;
+        fillSnapshot(eng, ep, loadSerial_[size_t(ep)].load(), snapWork_);
+        const juce::SpinLock::ScopedTryLockType sl(snapLock_);
+        if (sl.isLocked()) snap_ = snapWork_;  // within the reserved capacity: no allocation
+    }
+
     // Program changes become loads on the loader thread.
     const auto reqs = eng.takeProgramRequests();
     clock_ += frames;
@@ -1339,6 +1535,12 @@ void HS2Processor::getStateInformation(juce::MemoryBlock& destData) {
     xml.setAttribute("midiProgramChanges", midiProgramChanges_.load());
     xml.setAttribute("ringOut", ringOut_.load());
     xml.setAttribute("cutOnLoad", cutOnLoad_.load());
+    xml.setAttribute("hype", double(hype_.load()));
+    xml.setAttribute("velocitySensitivity", double(velSens_.load()));
+    xml.setAttribute("aftertouchSensitivity", double(touchSens_.load()));
+    xml.setAttribute("tuneSemitones", tuneSemis_.load());
+    xml.setAttribute("tuneCents", tuneCents_.load());
+    xml.setAttribute("preloadSamples", preload_.load());
     auto* setup = xml.createNewChildElement("SETUP");
     if (rb.setup.combiBank >= 0) {
         setup->setAttribute("combiBank", rb.setup.combiBank);
@@ -1363,6 +1565,16 @@ void HS2Processor::getStateInformation(juce::MemoryBlock& destData) {
             e->setAttribute("name", sp.name);
         }
     }
+    // The patch editor's edits per part (elem -1: a patch send effect parameter, 0: the patch, 1..: an element).
+    for (int p = 0; p < kNumParts; ++p)
+        for (const auto& [key, ed] : rb.edits[size_t(p)]) {
+            auto* e = setup->createNewChildElement("EDIT");
+            e->setAttribute("part", p + 1);
+            e->setAttribute("elem", key.first);
+            e->setAttribute("idx", key.second);
+            e->setAttribute("value", double(ed.value));
+            e->setAttribute("original", double(ed.original));
+        }
     // Parameter values as the engine holds them (the host parameters may not have caught up yet).
     auto* params = xml.createNewChildElement("PARAMS");
     for (int i = 0; i < kNumExposed; ++i)
@@ -1412,6 +1624,12 @@ void HS2Processor::setStateInformation(const void* data, int sizeInBytes) {
         midiProgramChanges_ = xml->getBoolAttribute("midiProgramChanges", true);
         ringOut_ = xml->getBoolAttribute("ringOut", true);
         cutOnLoad_ = xml->getBoolAttribute("cutOnLoad", true);
+        setHype(float(xml->getDoubleAttribute("hype", 0.33)));
+        setVelSens(float(xml->getDoubleAttribute("velocitySensitivity", 0.5)));
+        setTouchSens(float(xml->getDoubleAttribute("aftertouchSensitivity", 0.5)));
+        setTuneSemis(xml->getIntAttribute("tuneSemitones", 0));
+        setTuneCents(xml->getIntAttribute("tuneCents", 0));
+        preload_ = xml->getBoolAttribute("preloadSamples", false);
     }
     if (xml->getIntAttribute("stateVersion", 1) >= 2) {
         if (const auto* setup = xml->getChildByName("SETUP")) {
@@ -1435,6 +1653,17 @@ void HS2Processor::setStateInformation(const void* data, int sizeInBytes) {
                     sp.kind = Setup::Part::cleared;
                 }
             }
+            if (!xml->hasAttribute("preset"))
+                for (auto* e : setup->getChildWithTagNameIterator("EDIT")) {
+                    const int p = e->getIntAttribute("part", 0) - 1, elem = e->getIntAttribute("elem", -2),
+                              idx = e->getIntAttribute("idx", -1);
+                    const bool sendFx = elem == kSendFxElem && idx >= kSendFxFirstJ &&
+                                        idx < kSendFxFirstJ + kSendFxSlots * kSendFxParams;
+                    if (p < 0 || p >= kNumParts || !(sendFx || (elem >= 0 && elem <= 64 && idx >= 0 && idx < 256)))
+                        continue;
+                    const float v = juce::jlimit(0.f, 1.f, float(e->getDoubleAttribute("value")));
+                    rb.edits[size_t(p)][{elem, idx}] = {v, juce::jlimit(0.f, 1.f, float(e->getDoubleAttribute("original", v)))};
+                }
         }
         if (const auto* params = xml->getChildByName("PARAMS"))
             for (auto* e : params->getChildWithTagNameIterator("P")) {

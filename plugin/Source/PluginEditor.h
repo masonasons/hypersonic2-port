@@ -55,7 +55,43 @@ private:
 class KeySlider : public juce::Slider {
 public:
     std::function<double()> defaultValue;
+    // Optional: the arrow keys step to the value `delta` texts away (Page Up / Down: ten), instead of a fixed amount.
+    std::function<double(double value, int delta)> stepper;
+    std::function<void()> onReset;  // optional: Delete / Backspace call this instead of going to defaultValue
     bool keyPressed(const juce::KeyPress& key) override;
+};
+
+// One setting whose value comes from callbacks instead of a host parameter: the patch editor (PatchEdit.h) and the
+// global settings. A choice box when it has a list of values, else a slider (stepping by the value texts).
+class ValueRow : public juce::Component {
+public:
+    struct Binding {
+        juce::String title, description;
+        std::function<float()> get;
+        std::function<void(float)> set;
+        std::function<juce::String(float)> text;
+        std::function<float(float, int)> step;                // arrow keys: the value `delta` texts away
+        std::function<void()> reset;                          // Delete / Backspace (none: not offered)
+        std::vector<std::pair<float, juce::String>> choices;  // non-empty: a choice box
+        bool readOnly = false;
+        juce::String key;  // what the row shows (the editor rebinds a row only when this, the title or choices change)
+    };
+    explicit ValueRow(int order);
+    void bind(Binding b);  // shows the row
+    void unbind();         // hides it
+    bool bound() const { return bound_; }
+    const Binding& binding() const { return b_; }
+    void refresh();        // shows the current value
+    void resized() override;
+
+private:
+    void showValue(float v);
+    Binding b_;
+    bool bound_ = false, updating_ = false;
+    juce::String shownText_;  // the slider's text as last shown
+    juce::Label label_;
+    juce::ComboBox box_;
+    KeySlider slider_;
 };
 
 // One setting on a page: a label (hidden from screen readers; the control carries the title) and either a choice box
@@ -106,12 +142,19 @@ private:
     void refreshFromProcessor();
     void refreshPartBox();
     void selectPart(int part);  // attaches the part's controls and shows its patch
-    void setPage(int page, bool focusSelector);  // 0 patch and mixer, 1 part settings, 2 arpeggiator, 3 microtuning, 4 effects
+    // The pages of the right side, in the Show box's order.
+    enum Page { pgPatch, pgSettings, pgArp, pgTuning, pgPatchParams, pgElements, pgSends, pgGfx, pgGlobal, kNumPages };
+    void setPage(int page, bool focusSelector);
     void bindPages();                            // the page rows to the selected part and effect slot
     void focusPage();                            // keyboard focus to the shown page's first control
     void refreshPages();                         // effect slot names, tuning scale lists
+    // The patch editor pages (patch parameters, elements, patch send effects) from the part's latest values.
+    void refreshEditPages(bool rebindAll);
+    void unbindEditRows();
+    void bindEditRows(std::vector<std::unique_ptr<ValueRow>>& rows, int elem, const std::vector<int>& idx, bool rebindAll);
+    static void setBoxItems(juce::ComboBox& box, const juce::StringArray& items, int selectedIndex);
     // Rows in two columns, after head controls each on its own line (control, its label).
-    static void layoutRows(Section& s, const std::vector<ParamRow*>& rows,
+    static void layoutRows(Section& s, const std::vector<juce::Component*>& rows,
                            const std::vector<std::pair<juce::Component*, juce::Label*>>& heads);
     void fillEffectBox();  // the Effect box: the content's effect presets, the selected slot's effect selected
     void rebuildBankBox();
@@ -175,12 +218,26 @@ private:
     juce::String seenEffectSig_;
     std::vector<std::unique_ptr<ParamRow>> settingsRows_, arpRows_, tuningRows_, gfxRows_;
     std::vector<int> settingsE_, arpE_, tuningE_, gfxJ_;  // ParamDefs index (kExtDefs e / global effect j) per row
-    std::unique_ptr<ParamRow> linkRow_;
+    std::unique_ptr<ParamRow> linkRow_, keepRow_, trimRow_;
     std::unique_ptr<ParamRow> gfxSend1Row_;  // shown for effects 2..4 (they feed effect 1)
     std::vector<const void*> gfxKnobSeen_;   // the knob table each effect knob row shows (rebind when it changes)
     int page_ = 0;
     std::array<int, 2> seenTuneBank_{{-1, -1}};
     juce::StringArray seenFxNames_;
+
+    // The patch editor pages of the selected part
+    Section patchPage_{"Patch parameters"}, elemPage_{"Elements"}, sendsPage_{"Patch send effects"},
+        globalPage_{"Global settings"};
+    juce::Label patchGroupLabel_, elemLabel_, elemGroupLabel_, sendSlotLabel_;
+    juce::ComboBox patchGroupBox_, elemBox_, elemGroupBox_, sendSlotBox_;
+    std::vector<std::unique_ptr<ValueRow>> patchRows_, elemRows_, sendRows_, globalRows_;
+    EditContext ctx_;                   // the texts' view of snap_ and editsSeen_
+    PartSnapshot snap_;                 // the selected part's values (HS2Processor::snapshot)
+    EditMap editsSeen_;                 // its edits
+    std::shared_ptr<hs2::Content> content_;
+    int snapSerial_ = -1, snapPart_ = -1;
+    int patchGroup_ = 0, elemIndex_ = 0, elemGroup_ = 0, sendSlot_ = 0;  // what the boxes show
+    juce::StringArray patchGroupTitles_, elemTitles_, elemGroupTitles_, sendSlotTitles_;
 
     // Master
     KeySlider masterVolume_;
@@ -197,6 +254,8 @@ private:
     juce::ToggleButton cutOnLoad_{"Stop the old sound when a part's patch changes"};
     juce::TextButton audioSettings_{"Audio and MIDI settings..."};  // standalone app only
     juce::TextButton installPresets_{"Install presets..."};
+    juce::TextButton allNotesOff_{"All notes off"};
+    juce::TextButton rescan_{"Rescan content folder"};
     juce::TextButton help_{"Keyboard help"};
 
     juce::TextEditor status_;

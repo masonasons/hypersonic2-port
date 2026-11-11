@@ -71,6 +71,17 @@ PatchLibrary PatchLibrary::scan(const std::filesystem::path& root) {
     }
     std::sort(lib.tunings.begin(), lib.tunings.end(), [](const TuningBank& a, const TuningBank& b) { return a.number < b.number; });
 
+    // Sample and wavetable bank names (files "NNN name").
+    for (auto [dir, out] : {std::pair{"Samples", &lib.sampleBankNames}, std::pair{"Wavetables", &lib.wavetableNames}}) {
+        std::error_code nec;
+        for (const auto& e : std::filesystem::directory_iterator(root / dir, nec)) {
+            const auto name = e.path().filename().string();
+            if (!numbered(name)) continue;
+            const int number = std::stoi(name.substr(0, 3));
+            if (number >= 0 && number <= 128) (*out)[size_t(number)] = name;
+        }
+    }
+
     // Effect presets (Effects/<category>/<name>.fxp), for the global effect slots.
     std::error_code fec;
     const auto fxRoot = root / "Effects";

@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "ParamDefs.h"
+#include "PatchEdit.h"
 #include "PatchLibrary.h"
 #include "hs2/combi.h"
 #include "hs2/content.h"
@@ -50,10 +51,15 @@ constexpr int exposedIndex(int part, int pp) { return 1 + part * kPartParams + p
 constexpr int kExtPartBase = kNumMixerExposed;
 constexpr int kLinkBase = kExtPartBase + kNumParts * kExtPerPart;
 constexpr int kGfxBase = kLinkBase + (kNumParts - 1);
-constexpr int kNumExposed = kGfxBase + kGfxSlots * kGfxParams;
+// Added in 0.5.0, after the others so the numbers above stay: each part's Keep Settings and Level Trim.
+enum PartExtra { pxKeep, pxTrim, kPartExtras };
+constexpr int kPartExtraJ[kPartExtras] = {25, 26};
+constexpr int kPartExtraBase = kGfxBase + kGfxSlots * kGfxParams;
+constexpr int kNumExposed = kPartExtraBase + kNumParts * kPartExtras;
 constexpr int extIndex(int part, int e) { return kExtPartBase + part * kExtPerPart + e; }
 constexpr int linkIndex(int part) { return kLinkBase + part - 1; }  // part 1..15 (the second part on)
 constexpr int gfxIndex(int k, int j) { return kGfxBase + k * kGfxParams + j; }
+constexpr int partExtraIndex(int part, int x) { return kPartExtraBase + part * kPartExtras + x; }
 
 // Patch, bank and combi names are Windows-1252 / Latin-1 bytes: converted 1:1 (no UTF-8 decoding).
 juce::String fromLatin1(const std::string& s);
@@ -92,6 +98,40 @@ struct PatchInfo {
     juce::String name, bankName, description, controllers, author;
     std::array<juce::String, kNumKnobs> knobNames;
     juce::StringArray warnings;
+    struct Element {
+        int setter = 0;  // the element's address in the editor (record + 1)
+        int type = 0;    // 0 insert effect, 1 Drawbar, 2 Sample, 3 Wavetable, 4 FM, 5 Analog, 6 Model
+        juce::String name;
+    };
+    std::vector<Element> elements;
+};
+
+// A change made in the patch editor (PatchEdit.h): its value and the patch's own value (Delete goes back to it).
+struct Edit {
+    float value = 0, original = 0;
+};
+// Per part: (element, index) -> edit. Kept until the part's patch changes; saved with the state.
+using EditMap = std::map<std::pair<int, int>, Edit>;
+
+// The values of one part as the patch editor shows them, copied by the audio thread (the engine is single-threaded).
+struct PartSnapshot {
+    int part = -1;
+    int serial = 0;                         // HS2Processor::loadSerial_ of the part when copied
+    std::array<float, 256> patch{};
+    std::vector<int> types;                 // per element (setter e = index + 1): its type
+    std::vector<std::array<float, 256>> elements;
+    std::array<float, kSendFxSlots * kSendFxParams> sends{};  // part parameters 56..151
+    std::array<int, kSendFxSlots> sendTypes{{128, 128, 128, 128}};
+    float get(int elem, int idx) const {
+        if (idx < 0) return 0.f;
+        if (elem == kSendFxElem) {
+            const int k = idx - kSendFxFirstJ;
+            return k >= 0 && k < int(sends.size()) ? sends[size_t(k)] : 0.f;
+        }
+        if (idx > 255) return 0.f;
+        if (elem == 0) return patch[size_t(idx)];
+        return elem >= 1 && elem <= int(elements.size()) ? elements[size_t(elem - 1)][size_t(idx)] : 0.f;
+    }
 };
 
 // What is loaded, as the state saves it: an optional combi, then per part what was loaded after it.
@@ -190,6 +230,36 @@ public:
     // Loading a patch stops the part's previous patch (short fade) instead of letting it sound on. Default on.
     bool cutOnLoad() const { return cutOnLoad_.load(); }
     void setCutOnLoad(bool on) { cutOnLoad_ = on; }
+    // The original's setup values (saved with the state): Hype (tone enhancer drive and master gain, 0.33 default),
+    // velocity and aftertouch sensitivity (0.5 = linear), master tune (semitones -12..12, cents -50..50).
+    float hype() const { return hype_.load(); }
+    void setHype(float v) { hype_ = juce::jlimit(0.f, 1.f, v); }
+    float velSens() const { return velSens_.load(); }
+    void setVelSens(float v) { velSens_ = juce::jlimit(0.f, 1.f, v); }
+    float touchSens() const { return touchSens_.load(); }
+    void setTouchSens(float v) { touchSens_ = juce::jlimit(0.f, 1.f, v); }
+    int tuneSemis() const { return tuneSemis_.load(); }
+    void setTuneSemis(int v) { tuneSemis_ = juce::jlimit(-12, 12, v); }
+    int tuneCents() const { return tuneCents_.load(); }
+    void setTuneCents(int v) { tuneCents_ = juce::jlimit(-50, 50, v); }
+    // Decode every sample of a patch while it loads (more memory, no decoding when the first notes play).
+    bool preloadSamples() const { return preload_.load(); }
+    void setPreloadSamples(bool on) { preload_ = on; }
+    // Stops every note on every part (sustain off, all sound off, all notes off on the 16 channels).
+    void allNotesOff() { panic_ = true; }
+    // Reads the content folder's patch banks, tunings and effect presets again.
+    void rescanContent();
+
+    // ---- the patch editor (PatchEdit.h addresses) of one part ----
+    // Which part the editor shows; the audio thread then keeps a copy of its values (snapshot). -1: none.
+    void setEditPart(int part) { editPart_ = part; }
+    // The latest copy of the edited part's values; false when there is none for `part` yet.
+    bool snapshot(int part, PartSnapshot& out);
+    void setEdit(int part, int elem, int idx, float value);
+    void resetEdit(int part, int elem, int idx);  // back to the patch's own value
+    EditMap edits(int part) const;
+    // The content the editor names sample instruments from.
+    std::shared_ptr<hs2::Content> editorContent() const;
     // "Hyperknob 1: Thump" (the loaded patch's own name for the knob, if it has one).
     juce::String knobName(int part, int k) const;
     juce::String patchKnobName(int part, int k) const;  // the patch's own name, may be empty
@@ -230,8 +300,9 @@ private:
     };
     // A load prepared by the loader thread, applied by the audio thread between blocks.
     struct Command {
-        enum Kind { loadPatch, loadCombi, clearPart, memoryMode, globalFx } kind = loadPatch;
+        enum Kind { loadPatch, loadCombi, clearPart, memoryMode, globalFx, edit } kind = loadPatch;
         int part = 0, bank = -1;
+        int elem = 0, idx = 0;  // edit: the address (value = the value)
         float value = 0;
         std::array<float, 12> knobs{};  // globalFx: the preset's knobs (value = its type)
         bool empty = false;             // globalFx: no effect
@@ -248,6 +319,7 @@ private:
     // A complete rebuild (state restore, content folder, sample rate).
     struct Rebuild {
         Setup setup;
+        std::array<EditMap, kNumParts> edits;  // applied after the patches load
         std::array<float, kNumExposed> values{};
         std::array<bool, kNumExposed> valid{};
         bool explicitRequest = false;
@@ -268,7 +340,15 @@ private:
     void submit(const Request& r);
     void submitRebuild(const Rebuild& r);
     void applyCommand(hs2::Engine& e, const Command& c);
+    static void applyEdit(hs2::Engine& e, int part, int elem, int idx, float v);
+    struct SetupValues;
+    SetupValues wantedSetup() const;
+    // Hype, sensitivities, master tune: what differs between `from` (what the engine has) and `to`.
+    static void applySetup(hs2::Engine& e, const SetupValues& from, const SetupValues& to);
+    static void fillSnapshot(hs2::Engine& e, int part, int serial, PartSnapshot& out);
     static int engineIndex(int i) {
+        if (i >= kPartExtraBase)
+            return ((i - kPartExtraBase) / kPartExtras) * hs2::Engine::kParamsPerPart + kPartExtraJ[(i - kPartExtraBase) % kPartExtras];
         if (i < kExtPartBase)
             return i == 0 ? 0 : ((i - 1) / kPartParams) * hs2::Engine::kParamsPerPart + partParamJ((i - 1) % kPartParams);
         if (i < kLinkBase)
@@ -307,6 +387,26 @@ private:
     std::atomic<bool> midiProgramChanges_{true};
     std::atomic<bool> ringOut_{true};
     std::atomic<bool> cutOnLoad_{true};
+    std::atomic<float> hype_{0.33f}, velSens_{0.5f}, touchSens_{0.5f};
+    std::atomic<int> tuneSemis_{0}, tuneCents_{0};
+    std::atomic<bool> preload_{false};
+    std::atomic<bool> panic_{false};
+    struct SetupValues {
+        float hype = 0.33f, velSens = 0.5f, touchSens = 0.5f;
+        int semis = 0, cents = 0;
+        bool operator!=(const SetupValues& o) const {
+            return hype != o.hype || velSens != o.velSens || touchSens != o.touchSens || semis != o.semis || cents != o.cents;
+        }
+    };
+    SetupValues appliedSetup_;  // audio thread: what the engine has
+    // The patch editor's copy of one part (see snapshot()).
+    std::atomic<int> editPart_{-1};
+    std::array<std::atomic<int>, kNumParts> loadSerial_{};  // audio thread: bumped when a part's patch changes
+    PartSnapshot snapWork_;                                 // audio thread
+    mutable juce::SpinLock snapLock_;
+    PartSnapshot snap_;                                     // guarded by snapLock_
+    std::atomic<juce::uint32> lastBlockMs_{0};              // when the audio thread last ran
+    int snapCountdown_ = 0;
     // VST3 program changes (setCurrentProgram -> audio thread, see getNumPrograms).
     std::atomic<int> pendingProgram_{-1};
     std::array<std::atomic<int>, 16> pendingChannelProgram_;  // per MIDI channel, -1 = none (patched JUCE)
@@ -339,11 +439,13 @@ private:
     std::atomic<bool> requestPending_{false};
     std::atomic<bool> loadBusy_{false};
     std::atomic<bool> rescanRequested_{false};
+    std::atomic<bool> reportRescan_{false};  // rescanContent: say what the scan found
     std::mutex loaderMu_;                   // the loader's work runs on the loader thread and from prepareToPlay
 
     // Editor-visible state (guarded by infoMu_).
     mutable std::mutex infoMu_;
     Setup setup_;
+    std::array<EditMap, kNumParts> edits_;
     std::array<PatchInfo, kNumParts> infos_;
     juce::String combiName_;
     juce::String status_;

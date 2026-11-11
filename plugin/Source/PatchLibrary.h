@@ -59,6 +59,10 @@ public:
     std::vector<TuningBank> tunings;
     std::vector<EffectPreset> effects;  // sorted by folder (User Effects last), then name
     const TuningBank* tuning(int number) const;
+    // The sample bank and wavetable bank files by number (0..128): "042 Pianos", empty where there is none (the
+    // element editor names a sample or wavetable element's bank by these).
+    std::vector<std::string> sampleBankNames = std::vector<std::string>(129);
+    std::vector<std::string> wavetableNames = std::vector<std::string>(129);
     std::vector<std::string> errors;
 
     const BankInfo* bank(int number) const;

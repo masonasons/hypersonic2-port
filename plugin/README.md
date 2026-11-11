@@ -8,7 +8,7 @@ The plugin is designed first for use with a screen reader: NVDA, JAWS or Narrato
 
 - The audio matches `hs2render` sample for sample, and `hs2render` matches the original engine. `tests/compare_with_hs2render.py` checks this.
 - All 100 factory combis render the same as the original.
-- Not in the plugin yet: saving combis, Combi Chain files, multiple outputs, and host parameters for the part settings beyond the mixer and Hyperknobs (key ranges, transpose, arpeggiator, global effects).
+- Not in the plugin yet: saving combis, Combi Chain files, multiple outputs, and host parameters for the patch editor's edits (patch parameters, elements, patch send effects; they are saved with the project instead).
 - The engine's open items are listed in `docs/NOTES.md`. The Status box and the patch information name any unsupported feature of a loaded patch.
 
 ## Building
@@ -92,7 +92,7 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
 1. **Part:**
    - Part selector. Each entry names its patch, for example "Part 3: Soft Rubber Bass" or "Part 4: empty". The patch browser, Current patch, Hyperknobs and Part mixer work on the selected part.
    - Clear part.
-   - Show: what the right side shows for the selected part: Patch and mixer (Current patch, Hyperknobs, Part mixer), Part settings, Arpeggiator, Microtuning, or Global effects. Ctrl+Tab and Ctrl+Shift+Tab change the page and move to its first control.
+   - Show: what the right side shows for the selected part: Patch and mixer (Current patch, Hyperknobs, Part mixer), Part settings, Arpeggiator, Microtuning, Patch parameters, Elements, Patch send effects, Global effects, or Global settings. Ctrl+Tab and Ctrl+Shift+Tab change the page and move to its first control.
 2. **Patch browser:**
    - Search box. It searches patch, combi and bank names.
    - Bank filter. The combi banks ("120 Combis", "121 User Combis") hold combis.
@@ -103,7 +103,7 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
 4. **Part N Hyperknobs:** six sliders named after the patch's own knobs, for example "Hyperknob 4: Thump". Values are percentages.
 5. **Part N mixer:** Mute, Level, Pan, Effect send 1 to 4. Level and sends read as a percentage and in dB.
 6. **Master:** master volume in dB (all parts).
-7. **Settings:** content folder, "Choose content folder...", piano memory mode (ECO, MID or XXL), "Load patches and combis from MIDI program changes", "Let effect tails ring out", "Stop the old sound when a part's patch changes", "Install presets..." (see Presets), "Audio and MIDI settings..." (standalone app only), Keyboard help.
+7. **Settings:** content folder, "Choose content folder...", piano memory mode (ECO, MID or XXL), "Load patches and combis from MIDI program changes", "Let effect tails ring out", "Stop the old sound when a part's patch changes", "Install presets..." (see Presets), "All notes off" (stops every sounding note on all parts), "Rescan content folder" (reads the patch banks, combis, tunings and effect presets again), "Audio and MIDI settings..." (standalone app only), Keyboard help.
    - **Audio and MIDI settings** (standalone app): a window with Audio driver (ASIO on Windows when built with the ASIO SDK, Windows Audio, DirectSound; Core Audio on Mac), Output device, Sample rate, Buffer size (with its length in milliseconds), Refresh devices, Driver control panel (the ASIO driver's own settings), one "MIDI input: name" check box per MIDI input, a read-only Audio status box (device, rate, buffer, latency, errors) and Close. Changes apply at once and are saved; Escape closes the window.
 8. **Status:** a read-only text box with loading progress, errors, and features of the loaded patches that the port does not support yet.
 
@@ -112,10 +112,15 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
 The right side of the window shows one page at a time (the Show box, or Ctrl+Tab / Ctrl+Shift+Tab):
 
 - **Patch and mixer:** Current patch, Part N Hyperknobs, Part N mixer (the sections listed above).
-- **Part N settings:** Output, Key Low, Key High, Key Crossfade, Velocity Low, Velocity High, Velocity Crossfade, Transpose, Fine Tune, Max Voices, Effect Sends (global or the patch's own), Pitch Bend Up / Down, Mono / Poly, Glide, Glide Time, and for parts 2 to 16 Link (the part also plays the notes of the part above it).
+- **Part N settings:** Output, Key Low, Key High, Key Crossfade, Velocity Low, Velocity High, Velocity Crossfade, Transpose, Fine Tune, Max Voices, Effect Sends (global or the patch's own), Pitch Bend Up / Down, Mono / Poly, Glide, Glide Time, for parts 2 to 16 Link (the part also plays the notes of the part above it), Keep Settings (the part keeps these settings when another patch loads) and Level Trim.
 - **Part N arpeggiator:** Arpeggiator on / off, Latch, Mode, Octaves, Steps, Sync, Rate, Gate, Swing.
 - **Part N microtuning:** two tunings (bank, scale and root note each; the bank and scale names come from the content's Tunings folder) and the depth.
+- **Patch parameters** (the selected part's patch): a Group box (Patch, Piano, Patch LFOs, Knob Ranges, GM Controls, Scenes, Arp Phrase, Arp Step 1 to 16), then that group's parameters by the original's names and texts.
+- **Elements** (the selected part's patch): an Element box ("Element 1: Sample, Pad Saw"; an insert effect: "Element 3: Effect, Quad Chorus"), a Group box (Main, the element type's own parameters, Key and Velocity, Voice, Pitch, Glide, LFO 3, Envelope 1, Waveform, Filter, Filter Envelope, Amp Envelope, Output, Quick Knobs, and Mod 1 to 16, each named by its source and destination: "Mod 3: LFO 1 to Pitch"; an insert effect: Effect and Quick Knobs), then that group's parameters. A sample element's bank and sample read by their names; Element Type and an insert's Effect Type are read only. A group with more than 16 parameters is split ("Analog, 1 of 2").
+- **Patch send effects** (the selected part's patch): a Send effect box ("Send effect 1: Hall Reverb"), then Mute, Level, Pan, Aux Output, the effect's own knobs and the sends to effects 1 to 4.
+  - The three patch pages are those of the Schwung module (`schwung/README.md`), with the same names and texts. Changes apply at once and are kept with the project; they belong to the patch they were made on, so loading another patch into the part (or a combi) starts from that patch's own values. Sliders step from one displayed value to the next; Delete returns to the patch's own value.
 - **Global effects:** the effect slot ("Effect 1: Long Reverb (Hall Reverb)": the effect's name and type), the Effect box (the effect presets of the content's Effects folder, as the original's effect browser: "Delay: Mono Delay", "Chorus: Ensemble 1"..., or No effect; Up and Down load each one at once, and the choice is saved with the project; the combi's own effect shows as "..., as loaded" until you choose another), then Mute, Level, Pan, Aux Output, the effect's own knobs by the original's names and texts (a Hall Reverb's Mix, Time, Pre Del, HF Damp, Low EQ, Hi EQ; "Pre Del = 5 ms"; knobs the effect doesn't use are left out), and for effects 2 to 4 the send to effect 1. A delay's Delay knob reads in seconds, or as a note value ("1/8") when its Sync is on.
+- **Global settings** (all parts, saved with the project): Hype (the original's tone enhancer drive and master level, 33 % by default), Velocity sensitivity and Aftertouch sensitivity (50 % is linear), Master tune (-12 to +12 semitones), Master fine tune (-50 to +50 cents), Preload samples (decode a patch's samples while it loads: more memory, no decoding when the first notes play).
 
 Settings with a fixed list of values (note names, Transpose, Arp Mode...) are choice boxes: Up and Down arrows choose. The others are sliders with the slider keys. Every one is also a host parameter (below), with the same value text.
 
@@ -129,7 +134,7 @@ Settings with a fixed list of values (note names, Transpose, Arp Mode...) are ch
 | Ctrl+L | Patch list. Type letters to jump to a patch; Enter loads it into the selected part (a combi into all parts). |
 | Ctrl+Page Down / Ctrl+Page Up | Next / previous patch in the list |
 | Ctrl+I | Patch information of the selected part |
-| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous page (Patch and mixer, Part settings, Arpeggiator, Microtuning, Global effects), focus on its first control |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous page (Patch and mixer, Part settings, Arpeggiator, Microtuning, Patch parameters, Elements, Patch send effects, Global effects, Global settings), focus on its first control |
 | Arrows, Page Up / Page Down, Home / End | Change the focused slider (Page Up / Page Down: a tenth of the range; Home / End: lowest / highest) |
 | Delete or Backspace | Return the focused slider to the patch's own setting (the value it loaded with; Master: the default volume) |
 | F1 | Keyboard help |
@@ -148,7 +153,7 @@ In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so tha
   - Status is a text box.
   - When an action the user asked for fails, focus moves to the Status box, so the error is read.
 - **Focus never sits on an unusable component.** If the window has focus but no control does, focus goes to the search box. Inside a DAW this only happens while the plugin's own window has focus, so the plugin never takes focus from the DAW.
-- **Readable by host generic UIs.** The host parameters are the original Hypersonic 2's: Master Volume; per part Mute, Level, Pan, the four effect sends and the six Hyperknobs ("Part 3 Level", "Part 3 Hyperknob 4"); per part the settings, microtuning and arpeggiator ("Part 3 Transpose", "Part 3 Arp Rate"); Link for parts 2 to 16; and the four global effects' Mute, knobs, Aux Output, Level, Pan and sends ("Global Effect 2 Level"; a knob's value text starts with the effect's own name for it: "Global Effect 1 Knob 4 = Pre Del, 5 ms"). 832 in all, each with value text from the original's own display ("+12", "C3", "Legato", "1/16"), so a host's generic UI or OSARA's parameter list can read and set them. A Hyperknob's value text starts with the patch's own knob name ("Thump, 50 %").
+- **Readable by host generic UIs.** The host parameters are the original Hypersonic 2's: Master Volume; per part Mute, Level, Pan, the four effect sends and the six Hyperknobs ("Part 3 Level", "Part 3 Hyperknob 4"); per part the settings, microtuning and arpeggiator ("Part 3 Transpose", "Part 3 Arp Rate"); Link for parts 2 to 16; Keep Settings and Level Trim per part; and the four global effects' Mute, knobs, Aux Output, Level, Pan and sends ("Global Effect 2 Level"; a knob's value text starts with the effect's own name for it: "Global Effect 1 Knob 4 = Pre Del, 5 ms"). 864 in all (Keep Settings and Level Trim came last in 0.5.0, so the numbers of the others did not change), each with value text from the original's own display ("+12", "C3", "Legato", "1/16"), so a host's generic UI or OSARA's parameter list can read and set them. A Hyperknob's value text starts with the patch's own knob name ("Thump, 50 %").
 
 ## How it works
 
@@ -159,7 +164,7 @@ In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so tha
   - A host that does not use per-channel units uses the plugin's main program list (programs 0 to 127, plus "None"), without the MIDI channel. The plugin then uses the channel of the latest bank select, or part 1 if none came yet.
 - **Effect tails.** The original cuts some delay tails when the last note ends (it lets a part sleep as soon as it seems silent, and checks only the left channel). "Let effect tails ring out" (on by default) lets them play out; turn it off to hear exactly the original.
 - **Host transport.** Tempo, position, time signature and play state are passed to the engine every block. Tempo-synced LFOs, delays and the arpeggiator follow the host.
-- **Saved state.** The state holds the loaded combi and each part's patch (bank, number and name), the host parameter values, the selected part and the two MIDI / effect-tail settings. It never contains Steinberg data; the patches are read from the content folder again.
+- **Saved state.** The state holds the loaded combi and each part's patch (bank, number and name), the host parameter values, the patch editor's edits of each part, the selected part, the MIDI / effect-tail settings and the global settings. It never contains Steinberg data; the patches are read from the content folder again.
 - **New instance.** As in the original, part 1 holds "Welcome To The Matrix" (bank 084 HS2 Preview Patches, patch 0); the other parts are empty.
 
 ## Tests
@@ -170,6 +175,7 @@ In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so tha
   - state save and restore of each
   - 48 kHz with 512-frame blocks
   - a Hyperknob and a part level moved by the host, also after a state round trip
+- **`tests/edit_checks.py`:** the patch editor's edits and the global settings through `hs2plughost` (`--state-edit`, `--state-attr`): muting every element silences the patch, an element's Octave changes it, edits and settings come back identically from the saved state, the global settings at their defaults leave the output unchanged, and Keep Settings / Level Trim are host parameters. `HS2_BUILD` names the build folder (default `build_plugin`).
 - **`tests/keyboard_walk.ps1`:** opens the standalone app for about half a minute and checks its keyboard behaviour through UI Automation, which is what screen readers read:
   - where focus lands at start
   - the Tab order

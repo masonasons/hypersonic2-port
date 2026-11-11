@@ -20,6 +20,7 @@ juce_add_plugin(HS2Port
 
 target_sources(HS2Port PRIVATE
     Source/AudioSettings.cpp
+    Source/PatchEdit.cpp
     Source/PatchLibrary.cpp
     Source/PresetExport.cpp
     Source/PluginProcessor.cpp

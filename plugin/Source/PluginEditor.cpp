@@ -2,6 +2,7 @@
 
 #include "AudioSettings.h"
 #include "PresetExport.h"
+#include "hs2/effects.h"
 
 namespace hs2port {
 
@@ -44,6 +45,8 @@ void setupSlider(juce::Slider& s, int order, const juce::String& description) {
 
 const char* kSliderKeys = "Arrow keys change the value; Page Up and Page Down in larger steps; Home and End go to "
                           "the lowest and highest value; Delete returns to the patch's own setting.";
+const char* kSliderKeysNoReset = "Arrow keys change the value; Page Up and Page Down in larger steps; Home and End go "
+                                 "to the lowest and highest value; Delete returns to the default.";
 }  // namespace
 
 // ------------------------------------------------------------------------------------------------ KeySlider
@@ -52,6 +55,21 @@ bool KeySlider::keyPressed(const juce::KeyPress& key) {
     if (!key.getModifiers().isAnyModifierKeyDown()) {
         const double lo = getMinimum(), hi = getMaximum();
         const int code = key.getKeyCode();
+        if (stepper) {  // step by the value texts
+            int delta = 0;
+            if (code == juce::KeyPress::rightKey || code == juce::KeyPress::upKey) delta = 1;
+            else if (code == juce::KeyPress::leftKey || code == juce::KeyPress::downKey) delta = -1;
+            else if (code == juce::KeyPress::pageUpKey) delta = 10;
+            else if (code == juce::KeyPress::pageDownKey) delta = -10;
+            if (delta != 0) {
+                setValue(juce::jlimit(lo, hi, stepper(getValue(), delta)), juce::sendNotificationSync);
+                return true;
+            }
+        }
+        if ((code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey) && onReset) {
+            onReset();
+            return true;
+        }
         double v = getValue();
         bool handled = true;
         if (code == juce::KeyPress::pageUpKey) v += (hi - lo) / 10.0;
@@ -149,6 +167,111 @@ void ParamRow::showValue(float v) {
 }
 
 void ParamRow::resized() {
+    auto r = getLocalBounds();
+    label_.setBounds(r.removeFromLeft(juce::jmin(150, r.getWidth() * 45 / 100)));
+    box_.setBounds(r);
+    slider_.setBounds(r);
+}
+
+// ------------------------------------------------------------------------------------------------ ValueRow
+
+ValueRow::ValueRow(int order) {
+    setExplicitFocusOrder(order);
+    label_.setAccessible(false);  // the control carries the same title
+    addAndMakeVisible(label_);
+    box_.setExplicitFocusOrder(1);
+    box_.setWantsKeyboardFocus(true);
+    addChildComponent(box_);
+    setupSlider(slider_, 1, {});
+    slider_.setRange(0.0, 1.0, 0.0);
+    addChildComponent(slider_);
+    box_.onChange = [this] {
+        if (updating_ || !bound_ || b_.readOnly || !b_.set) return;
+        const int k = box_.getSelectedItemIndex();
+        if (k >= 0 && k < int(b_.choices.size())) b_.set(b_.choices[size_t(k)].first);
+    };
+    slider_.onValueChange = [this] {
+        if (!updating_ && bound_ && !b_.readOnly && b_.set) b_.set(float(slider_.getValue()));
+    };
+    slider_.textFromValueFunction = [this](double v) { return bound_ && b_.text ? b_.text(float(v)) : juce::String(); };
+    slider_.stepper = [this](double v, int delta) {
+        return bound_ && b_.step ? double(b_.step(float(v), delta)) : juce::jlimit(0.0, 1.0, v + 0.01 * delta);
+    };
+    slider_.onReset = [this] {
+        if (bound_ && b_.reset) {
+            b_.reset();
+            refresh();
+        }
+    };
+    setVisible(false);
+}
+
+void ValueRow::bind(Binding b) {
+    b_ = std::move(b);
+    bound_ = true;
+    label_.setText(b_.title, juce::dontSendNotification);
+    if (!b_.choices.empty()) {
+        box_.setTitle(b_.title);
+        box_.setDescription(b_.description + (b_.readOnly ? " Read only: the patch sets it."
+                                                          : " Up and Down arrows choose a value."));
+        updating_ = true;
+        box_.clear(juce::dontSendNotification);
+        for (size_t k = 0; k < b_.choices.size(); ++k)
+            box_.addItem(b_.choices[k].second.isNotEmpty() ? b_.choices[k].second : juce::String("(none)"), int(k) + 1);
+        updating_ = false;
+        slider_.setVisible(false);
+        box_.setVisible(true);
+    } else {
+        slider_.setTitle(b_.title);
+        slider_.setDescription(b_.description + " " + (b_.reset ? kSliderKeys : kSliderKeysNoReset));
+        box_.setVisible(false);
+        slider_.setVisible(true);
+    }
+    setVisible(true);
+    refresh();
+}
+
+void ValueRow::unbind() {
+    bound_ = false;
+    shownText_.clear();
+    b_ = Binding();
+    setVisible(false);
+}
+
+void ValueRow::refresh() {
+    if (!bound_ || !b_.get) return;
+    showValue(b_.get());
+}
+
+// The choice that shows v: the one whose text is v's text, else the nearest value. A slider: the value (and its text,
+// which can change with other values, e.g. a delay time that follows Sync).
+void ValueRow::showValue(float v) {
+    updating_ = true;
+    if (!b_.choices.empty()) {
+        const auto text = b_.text ? b_.text(v) : juce::String();
+        int best = -1;
+        for (size_t k = 0; k < b_.choices.size() && best < 0; ++k)
+            if (b_.choices[k].second == text) best = int(k);
+        if (best < 0) {
+            float bestD = 2.f;
+            for (size_t k = 0; k < b_.choices.size(); ++k)
+                if (std::abs(b_.choices[k].first - v) < bestD) {
+                    bestD = std::abs(b_.choices[k].first - v);
+                    best = int(k);
+                }
+        }
+        if (box_.getSelectedItemIndex() != best) box_.setSelectedItemIndex(best, juce::dontSendNotification);
+    } else {
+        if (std::abs(slider_.getValue() - double(v)) > 1e-7) slider_.setValue(double(v), juce::dontSendNotification);
+        if (const auto t = b_.text ? b_.text(v) : juce::String(); t != shownText_) {
+            shownText_ = t;
+            slider_.updateText();
+        }
+    }
+    updating_ = false;
+}
+
+void ValueRow::resized() {
     auto r = getLocalBounds();
     label_.setBounds(r.removeFromLeft(juce::jmin(150, r.getWidth() * 45 / 100)));
     box_.setBounds(r);
@@ -266,11 +389,13 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
     };
     partSection_.addAndMakeVisible(pageBox_);
     pageBox_.setTitle("Show");
-    pageBox_.setDescription("What the right side of the window shows for the selected part: its patch, Hyperknobs and "
-                            "mixer; its settings; its arpeggiator; its microtuning; or the global effects. Shortcut "
-                            "Ctrl+Tab and Ctrl+Shift+Tab.");
+    pageBox_.setDescription("What the right side of the window shows: the selected part's patch, Hyperknobs and mixer; "
+                            "its settings; its arpeggiator; its microtuning; its patch's parameters, elements and send "
+                            "effects; or the global effects and settings. Shortcut Ctrl+Tab and Ctrl+Shift+Tab.");
     pageBox_.setExplicitFocusOrder(3);
-    pageBox_.addItemList({"Patch and mixer", "Part settings", "Arpeggiator", "Microtuning", "Global effects"}, 1);
+    pageBox_.addItemList({"Patch and mixer", "Part settings", "Arpeggiator", "Microtuning", "Patch parameters", "Elements",
+                          "Patch send effects", "Global effects", "Global settings"},
+                         1);
     pageBox_.onChange = [this] {
         const int id = pageBox_.getSelectedId();
         if (id >= 1 && id - 1 != page_) setPage(id - 1, false);
@@ -398,6 +523,12 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
     linkRow_ = std::make_unique<ParamRow>(proc_, "Link", "When on, this part also plays the notes of the part above it.",
                                           linkOrder);
     settingsPage_.addChildComponent(*linkRow_);
+    keepRow_ = std::make_unique<ParamRow>(proc_, "Keep Settings",
+                                          "When on, the part keeps these settings when another patch loads into it.",
+                                          linkOrder + 1);
+    settingsPage_.addAndMakeVisible(*keepRow_);
+    trimRow_ = std::make_unique<ParamRow>(proc_, "Level Trim", "The patch's level trim for this part.", linkOrder + 2);
+    settingsPage_.addAndMakeVisible(*trimRow_);
     makePage(arpPage_, ExtPage::arp, arpRows_, arpE_);
     makePage(tuningPage_, ExtPage::tuning, tuningRows_, tuningE_);
     addChildComponent(gfxPage_);
@@ -440,6 +571,134 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
         }
         gfxSend1Row_ = std::make_unique<ParamRow>(proc_, "Send to effect 1", "Level this effect sends to effect 1.", o++);
         gfxPage_.addChildComponent(*gfxSend1Row_);
+    }
+
+    // ---- The patch editor of the selected part: patch parameters, elements, patch send effects
+    auto makeRows = [](Section& sec, std::vector<std::unique_ptr<ValueRow>>& rows, int count, int firstOrder) {
+        for (int k = 0; k < count; ++k) {
+            rows.push_back(std::make_unique<ValueRow>(firstOrder + k));
+            sec.addChildComponent(*rows.back());
+        }
+    };
+    auto makeHead = [](Section& sec, juce::ComboBox& box, juce::Label& label, const juce::String& title,
+                       const juce::String& description, int o) {
+        sec.addAndMakeVisible(box);
+        box.setTitle(title);
+        box.setDescription(description);
+        box.setExplicitFocusOrder(o);
+        setupLabel(label, title, box);
+    };
+    addChildComponent(patchPage_);
+    patchPage_.setExplicitFocusOrder(order++);
+    makeHead(patchPage_, patchGroupBox_, patchGroupLabel_, "Group",
+             "Which of the patch's parameters the controls below show: Patch, Piano, Patch LFOs, Knob Ranges, GM "
+             "Controls, Scenes, Arp Phrase, Arp Steps. Changes apply at once and are saved with the project; loading "
+             "another patch into the part starts from that patch's own values.",
+             1);
+    patchGroupBox_.onChange = [this] {
+        patchGroup_ = juce::jmax(0, patchGroupBox_.getSelectedItemIndex());
+        refreshEditPages(true);
+    };
+    makeRows(patchPage_, patchRows_, kMaxGroupRows, 2);
+    addChildComponent(elemPage_);
+    elemPage_.setExplicitFocusOrder(order++);
+    makeHead(elemPage_, elemBox_, elemLabel_, "Element",
+             "The element of the part's patch the controls below work on: its number, type and name (an insert "
+             "effect: its effect).",
+             1);
+    elemBox_.onChange = [this] {
+        elemIndex_ = juce::jmax(0, elemBox_.getSelectedItemIndex());
+        elemGroup_ = 0;
+        refreshEditPages(true);
+    };
+    makeHead(elemPage_, elemGroupBox_, elemGroupLabel_, "Group",
+             "Which of the element's parameters the controls below show: Main, the element type's own, Key and "
+             "Velocity, Voice, Pitch, Glide, LFO 3, envelopes, Waveform, Filter, Output, Quick Knobs, and the 16 "
+             "modulation rows (each named by its source and destination). Changes apply at once and are saved with "
+             "the project.",
+             2);
+    elemGroupBox_.onChange = [this] {
+        elemGroup_ = juce::jmax(0, elemGroupBox_.getSelectedItemIndex());
+        refreshEditPages(true);
+    };
+    makeRows(elemPage_, elemRows_, kMaxGroupRows, 3);
+    addChildComponent(sendsPage_);
+    sendsPage_.setExplicitFocusOrder(order++);
+    makeHead(sendsPage_, sendSlotBox_, sendSlotLabel_, "Send effect",
+             "Which of the patch's own four send effects the controls below work on (the patch sets the effect). "
+             "Changes apply at once and are saved with the project.",
+             1);
+    sendSlotBox_.onChange = [this] {
+        sendSlot_ = juce::jlimit(0, kSendFxSlots - 1, sendSlotBox_.getSelectedItemIndex());
+        refreshEditPages(true);
+    };
+    makeRows(sendsPage_, sendRows_, kSendFxParams, 2);
+    ctx_.value = [this](int elem, int idx) {
+        if (const auto it = editsSeen_.find({elem, idx}); it != editsSeen_.end()) return it->second.value;
+        return snap_.get(elem, idx);
+    };
+    ctx_.elemType = [this](int elem) {
+        return elem >= 1 && elem <= int(snap_.types.size()) ? snap_.types[size_t(elem - 1)] : -1;
+    };
+    ctx_.sendType = [this](int slot) { return slot >= 0 && slot < kSendFxSlots ? snap_.sendTypes[size_t(slot)] : 128; };
+
+    // ---- Global settings
+    addChildComponent(globalPage_);
+    globalPage_.setExplicitFocusOrder(order++);
+    {
+        auto pct = [](float v) { return juce::String(juce::roundToInt(v * 100.f)) + " %"; };
+        auto step100 = [](float v, int d) { return juce::jlimit(0.f, 1.f, float(juce::roundToInt(v * 100.f) + d) / 100.f); };
+        auto signedText = [](int n, const char* unit) { return (n > 0 ? "+" : "") + juce::String(n) + unit; };
+        std::vector<ValueRow::Binding> bs(6);
+        bs[0].title = "Hype";
+        bs[0].description = "The original's Hype: the drive of the master tone enhancer and the master level, for all "
+                            "parts. Default 33 %.";
+        bs[0].get = [this] { return proc_.hype(); };
+        bs[0].set = [this](float v) { proc_.setHype(v); };
+        bs[0].text = pct;
+        bs[0].step = step100;
+        bs[1].title = "Velocity sensitivity";
+        bs[1].description = "How strongly note velocity acts, for all parts. 50 % is linear (the default); lower is "
+                            "softer, higher steeper.";
+        bs[1].get = [this] { return proc_.velSens(); };
+        bs[1].set = [this](float v) { proc_.setVelSens(v); };
+        bs[1].text = [pct](float v) { return pct(v) + (juce::roundToInt(v * 100.f) == 50 ? ", linear" : ""); };
+        bs[1].step = step100;
+        bs[2] = bs[1];
+        bs[2].title = "Aftertouch sensitivity";
+        bs[2].description = "How strongly aftertouch acts, for all parts. 50 % is linear (the default).";
+        bs[2].get = [this] { return proc_.touchSens(); };
+        bs[2].set = [this](float v) { proc_.setTouchSens(v); };
+        bs[3].title = "Master tune";
+        bs[3].description = "Transposes all parts, -12 to +12 semitones.";
+        bs[3].get = [this] { return float(proc_.tuneSemis() + 12) / 24.f; };
+        bs[3].set = [this](float v) { proc_.setTuneSemis(juce::roundToInt(v * 24.f) - 12); };
+        bs[3].text = [signedText](float v) { return signedText(juce::roundToInt(v * 24.f) - 12, " semitones"); };
+        bs[3].step = [](float v, int d) { return juce::jlimit(0.f, 1.f, float(juce::roundToInt(v * 24.f) + d) / 24.f); };
+        bs[4].title = "Master fine tune";
+        bs[4].description = "Tunes all parts, -50 to +50 cents.";
+        bs[4].get = [this] { return float(proc_.tuneCents() + 50) / 100.f; };
+        bs[4].set = [this](float v) { proc_.setTuneCents(juce::roundToInt(v * 100.f) - 50); };
+        bs[4].text = [signedText](float v) { return signedText(juce::roundToInt(v * 100.f) - 50, " cents"); };
+        bs[4].step = step100;
+        bs[5].title = "Preload samples";
+        bs[5].description = "When on, a patch's samples are all decoded while it loads, so the first notes play without "
+                            "decoding them. Uses more memory. Applies to patches loaded after the change.";
+        bs[5].get = [this] { return proc_.preloadSamples() ? 0.75f : 0.25f; };
+        bs[5].set = [this](float v) { proc_.setPreloadSamples(v > 0.5f); };
+        bs[5].text = [](float v) { return v > 0.5f ? juce::String("on") : juce::String("off"); };
+        bs[5].choices = {{0.25f, "off"}, {0.75f, "on"}};
+        const float defaults[5] = {0.33f, 0.5f, 0.5f, 0.5f, 0.5f};
+        for (size_t k = 0; k < bs.size(); ++k) {
+            if (k < 5) {
+                const float d = defaults[k];
+                auto set = bs[k].set;
+                bs[k].reset = [set, d] { set(d); };
+            }
+            globalRows_.push_back(std::make_unique<ValueRow>(int(k) + 1));
+            globalPage_.addChildComponent(*globalRows_.back());
+            globalRows_.back()->bind(bs[k]);
+        }
     }
 
     // ---- Master
@@ -498,15 +757,27 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
                                    "choose them in your DAW's preset browser and in Komplete Kontrol. Presets you saved "
                                    "yourself are kept.");
     installPresets_.onClick = [this] { confirmInstallPresets(); };
+    settings_.addAndMakeVisible(allNotesOff_);
+    allNotesOff_.setExplicitFocusOrder(8);
+    allNotesOff_.setDescription("Stops every sounding note on all 16 parts.");
+    allNotesOff_.onClick = [this] {
+        proc_.allNotesOff();
+        status_.setText("All notes off.", juce::dontSendNotification);
+    };
+    settings_.addAndMakeVisible(rescan_);
+    rescan_.setExplicitFocusOrder(9);
+    rescan_.setDescription("Reads the content folder's patch banks, combis, tunings and effect presets again, for "
+                           "example after you added banks to it.");
+    rescan_.onClick = [this] { proc_.rescanContent(); };
     if (standaloneAudioAvailable()) {  // the standalone app: its audio driver, device, buffer and MIDI inputs
         settings_.addAndMakeVisible(audioSettings_);
-        audioSettings_.setExplicitFocusOrder(8);
+        audioSettings_.setExplicitFocusOrder(10);
         audioSettings_.setDescription("Opens the audio driver (ASIO or Windows Audio), output device, sample rate, "
                                       "buffer size and MIDI input settings of this standalone app.");
         audioSettings_.onClick = [this] { showAudioMidiSettings(this); };
     }
     settings_.addAndMakeVisible(help_);
-    help_.setExplicitFocusOrder(9);
+    help_.setExplicitFocusOrder(11);
     help_.setDescription("Lists the keyboard shortcuts. Shortcut F1.");
     help_.onClick = [this] { showKeyboardHelp(); };
 
@@ -523,8 +794,8 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
     }
 
     setResizable(true, true);
-    setResizeLimits(1000, 800, 2000, 1600);
-    setSize(1200, 860);
+    setResizeLimits(1000, 860, 2000, 1600);
+    setSize(1200, 900);
     refreshPartBox();
     selectPart(part());
     refreshFromProcessor();
@@ -584,11 +855,14 @@ void HS2Editor::resized() {
     mixer_.setBounds(mixerArea);
     // the other pages: the whole area of current patch, Hyperknobs and mixer
     const auto pageArea = currentArea.getUnion(mixerArea);
-    for (auto* sec : {&settingsPage_, &arpPage_, &tuningPage_, &gfxPage_}) sec->setBounds(pageArea);
+    for (auto* sec : {&settingsPage_, &arpPage_, &tuningPage_, &gfxPage_, &patchPage_, &elemPage_, &sendsPage_, &globalPage_})
+        sec->setBounds(pageArea);
     {
-        std::vector<ParamRow*> rows;
+        std::vector<juce::Component*> rows;
         for (auto& r2 : settingsRows_) rows.push_back(r2.get());
         if (linkRow_->isVisible()) rows.push_back(linkRow_.get());
+        rows.push_back(keepRow_.get());
+        rows.push_back(trimRow_.get());
         layoutRows(settingsPage_, rows, {});
         rows.clear();
         for (auto& r2 : arpRows_) rows.push_back(r2.get());
@@ -601,6 +875,16 @@ void HS2Editor::resized() {
             if (r2->isVisible()) rows.push_back(r2.get());
         if (gfxSend1Row_->isVisible()) rows.push_back(gfxSend1Row_.get());
         layoutRows(gfxPage_, rows, {{&gfxSlot_, &gfxSlotLabel_}, {&gfxEffect_, &gfxEffectLabel_}});
+        auto shown = [](const std::vector<std::unique_ptr<ValueRow>>& rs) {
+            std::vector<juce::Component*> v;
+            for (auto& r2 : rs)
+                if (r2->isVisible()) v.push_back(r2.get());
+            return v;
+        };
+        layoutRows(patchPage_, shown(patchRows_), {{&patchGroupBox_, &patchGroupLabel_}});
+        layoutRows(elemPage_, shown(elemRows_), {{&elemBox_, &elemLabel_}, {&elemGroupBox_, &elemGroupLabel_}});
+        layoutRows(sendsPage_, shown(sendRows_), {{&sendSlotBox_, &sendSlotLabel_}});
+        layoutRows(globalPage_, shown(globalRows_), {});
     }
     master_.setBounds(masterArea);
     settings_.setBounds(settingsArea);
@@ -682,7 +966,12 @@ void HS2Editor::resized() {
         c.removeFromTop(6);
         cutOnLoad_.setBounds(c.removeFromTop(30).withTrimmedLeft(120));
         c.removeFromTop(6);
-        installPresets_.setBounds(c.removeFromTop(30).withTrimmedLeft(120).withWidth(230));
+        auto row6 = c.removeFromTop(30).withTrimmedLeft(120);
+        installPresets_.setBounds(row6.removeFromLeft(200));
+        row6.removeFromLeft(6);
+        allNotesOff_.setBounds(row6.removeFromLeft(140));
+        row6.removeFromLeft(6);
+        rescan_.setBounds(row6.removeFromLeft(200));
     }
     status_.setBounds(statusSection_.content());
 }
@@ -703,7 +992,7 @@ void HS2Editor::refreshPartBox() {
 }
 
 // Rows in two columns (row-major), after an optional first control (the effect slot) on its own line.
-void HS2Editor::layoutRows(Section& s, const std::vector<ParamRow*>& rows,
+void HS2Editor::layoutRows(Section& s, const std::vector<juce::Component*>& rows,
                            const std::vector<std::pair<juce::Component*, juce::Label*>>& heads) {
     auto c = s.content();
     for (const auto& [ctl, label] : heads) {
@@ -762,16 +1051,24 @@ void HS2Editor::fillEffectBox() {
 }
 
 void HS2Editor::setPage(int page, bool focusSelector) {
-    page_ = juce::jlimit(0, 4, page);
+    page_ = juce::jlimit(0, int(kNumPages) - 1, page);
     proc_.selectedPage = page_;
     if (pageBox_.getSelectedId() != page_ + 1) pageBox_.setSelectedId(page_ + 1, juce::dontSendNotification);
-    current_.setVisible(page_ == 0);
-    knobs_.setVisible(page_ == 0);
-    mixer_.setVisible(page_ == 0);
-    settingsPage_.setVisible(page_ == 1);
-    arpPage_.setVisible(page_ == 2);
-    tuningPage_.setVisible(page_ == 3);
-    gfxPage_.setVisible(page_ == 4);
+    current_.setVisible(page_ == pgPatch);
+    knobs_.setVisible(page_ == pgPatch);
+    mixer_.setVisible(page_ == pgPatch);
+    settingsPage_.setVisible(page_ == pgSettings);
+    arpPage_.setVisible(page_ == pgArp);
+    tuningPage_.setVisible(page_ == pgTuning);
+    patchPage_.setVisible(page_ == pgPatchParams);
+    elemPage_.setVisible(page_ == pgElements);
+    sendsPage_.setVisible(page_ == pgSends);
+    gfxPage_.setVisible(page_ == pgGfx);
+    globalPage_.setVisible(page_ == pgGlobal);
+    // The audio thread copies the part's values for the patch editor pages only while one is shown.
+    const bool editPage = page_ == pgPatchParams || page_ == pgElements || page_ == pgSends;
+    proc_.setEditPart(editPage ? part() : -1);
+    if (editPage) refreshEditPages(true);
     resized();
     if (focusSelector) pageBox_.grabKeyboardFocus();
 }
@@ -780,10 +1077,17 @@ void HS2Editor::setPage(int page, bool focusSelector) {
 void HS2Editor::focusPage() {
     juce::Component* first = nullptr;
     switch (page_) {
-        case 0: first = &info_; break;
-        case 4: first = &gfxSlot_; break;
+        case pgPatch: first = &info_; break;
+        case pgGfx: first = &gfxSlot_; break;
+        case pgPatchParams: first = &patchGroupBox_; break;
+        case pgElements: first = &elemBox_; break;
+        case pgSends: first = &sendSlotBox_; break;
+        case pgGlobal:
+            for (auto* c : globalRows_.front()->getChildren())
+                if (c->isVisible() && c->getWantsKeyboardFocus()) first = c;
+            break;
         default: {
-            auto& rows = page_ == 1 ? settingsRows_ : page_ == 2 ? arpRows_ : tuningRows_;
+            auto& rows = page_ == pgSettings ? settingsRows_ : page_ == pgArp ? arpRows_ : tuningRows_;
             if (!rows.empty())
                 for (auto* c : rows.front()->getChildren())
                     if (c->isVisible() && c->getWantsKeyboardFocus()) first = c;
@@ -799,11 +1103,16 @@ void HS2Editor::bindPages() {
     settingsPage_.setTitle(n + " settings");
     arpPage_.setTitle(n + " arpeggiator");
     tuningPage_.setTitle(n + " microtuning");
+    patchPage_.setTitle(n + " patch parameters");
+    elemPage_.setTitle(n + " elements");
+    sendsPage_.setTitle(n + " patch send effects");
     for (size_t r = 0; r < settingsRows_.size(); ++r) settingsRows_[r]->bind(extIndex(p, settingsE_[r]));
     for (size_t r = 0; r < arpRows_.size(); ++r) arpRows_[r]->bind(extIndex(p, arpE_[r]));
     for (size_t r = 0; r < tuningRows_.size(); ++r) tuningRows_[r]->bind(extIndex(p, tuningE_[r]));
     linkRow_->setVisible(p > 0);  // part 1 has no part above it
     linkRow_->bind(p > 0 ? linkIndex(p) : -1);
+    keepRow_->bind(partExtraIndex(p, pxKeep));
+    trimRow_->bind(partExtraIndex(p, pxTrim));
     const int slot = juce::jlimit(0, kGfxSlots - 1, proc_.selectedEffectSlot.load());
     if (gfxSlot_.getSelectedId() != slot + 1) gfxSlot_.setSelectedId(slot + 1, juce::dontSendNotification);
     for (size_t r = 0; r < gfxRows_.size(); ++r) gfxRows_[r]->bind(gfxIndex(slot, gfxJ_[r]));
@@ -814,7 +1123,146 @@ void HS2Editor::bindPages() {
     seenEffectSig_.clear();
     seenFxNames_.clear();
     refreshPages();
-    for (auto* sec : {&settingsPage_, &arpPage_, &tuningPage_, &gfxPage_}) sec->repaint();
+    for (auto* sec : {&settingsPage_, &arpPage_, &tuningPage_, &gfxPage_, &patchPage_, &elemPage_, &sendsPage_}) sec->repaint();
+    // the patch editor pages start over on the new part (its values arrive from the audio thread)
+    unbindEditRows();
+    elemIndex_ = elemGroup_ = 0;
+    if (page_ == pgPatchParams || page_ == pgElements || page_ == pgSends) {
+        proc_.setEditPart(p);
+        refreshEditPages(true);
+    }
+}
+
+void HS2Editor::unbindEditRows() {
+    for (auto* rows : {&patchRows_, &elemRows_, &sendRows_})
+        for (auto& r : *rows) r->unbind();
+    snapPart_ = snapSerial_ = -1;
+}
+
+void HS2Editor::setBoxItems(juce::ComboBox& box, const juce::StringArray& items, int selectedIndex) {
+    bool same = box.getNumItems() == items.size();
+    for (int k = 0; same && k < items.size(); ++k) same = box.getItemText(k) == items[k];
+    if (!same) {
+        box.clear(juce::dontSendNotification);
+        for (int k = 0; k < items.size(); ++k) box.addItem(items[k], k + 1);
+    }
+    if (box.getSelectedItemIndex() != selectedIndex) box.setSelectedItemIndex(selectedIndex, juce::dontSendNotification);
+}
+
+void HS2Editor::refreshEditPages(bool rebindAll) {
+    if (page_ != pgPatchParams && page_ != pgElements && page_ != pgSends) return;
+    const int p = part();
+    PartSnapshot fresh;
+    if (!proc_.snapshot(p, fresh)) return;  // the audio thread has not copied this part yet: next time
+    if (fresh.part != p) return;
+    const bool newPatch = p != snapPart_ || fresh.serial != snapSerial_ || fresh.types != snap_.types;
+    snap_ = std::move(fresh);
+    editsSeen_ = proc_.edits(p);
+    if (newPatch) {
+        snapPart_ = p;
+        snapSerial_ = snap_.serial;
+        content_ = proc_.editorContent();
+        rebindAll = true;
+    }
+    ctx_.library = library_.get();
+    ctx_.content = content_.get();
+    const auto info = proc_.partInfo(p);
+    if (page_ == pgPatchParams) {
+        std::vector<EditGroup> groups;
+        juce::StringArray titles;
+        if (info.empty) titles.add("None, the part is empty");
+        else
+            for (auto& g : (groups = patchGroups(ctx_))) titles.add(g.title);
+        patchGroup_ = juce::jlimit(0, titles.size() - 1, patchGroup_);
+        setBoxItems(patchGroupBox_, titles, patchGroup_);
+        bindEditRows(patchRows_, 0, groups.empty() ? std::vector<int>() : groups[size_t(patchGroup_)].idx, rebindAll);
+    } else if (page_ == pgElements) {
+        juce::StringArray titles;
+        const int n = info.empty ? 0 : int(snap_.types.size());
+        for (int e = 1; e <= n; ++e) {
+            const int t = snap_.types[size_t(e - 1)];
+            juce::String name = e - 1 < int(info.elements.size()) ? info.elements[size_t(e - 1)].name : juce::String();
+            if (t == 0) {  // an insert effect: its effect
+                const char* fx = hs2::effectName(int(ctx_.value(e, 0x13) * 128.9f));
+                if (name.isEmpty() && fx != nullptr) name = fx;
+                else if (fx != nullptr && name != fx) name << " (" << fx << ")";
+            }
+            titles.add("Element " + juce::String(e) + ": " + elementTypeName(t) + (name.isNotEmpty() ? ", " + name : juce::String()));
+        }
+        if (titles.isEmpty()) titles.add(info.empty ? "None, the part is empty" : "None, the patch has no elements");
+        elemIndex_ = juce::jlimit(0, titles.size() - 1, elemIndex_);
+        setBoxItems(elemBox_, titles, elemIndex_);
+        std::vector<EditGroup> groups;
+        juce::StringArray gtitles;
+        if (n > 0)
+            for (auto& g : (groups = elementGroups(ctx_, elemIndex_ + 1))) gtitles.add(g.title);
+        if (gtitles.isEmpty()) gtitles.add("None");
+        elemGroup_ = juce::jlimit(0, gtitles.size() - 1, elemGroup_);
+        setBoxItems(elemGroupBox_, gtitles, elemGroup_);
+        bindEditRows(elemRows_, elemIndex_ + 1, groups.empty() ? std::vector<int>() : groups[size_t(elemGroup_)].idx,
+                     rebindAll);
+    } else {
+        juce::StringArray titles;
+        for (int k = 0; k < kSendFxSlots; ++k) titles.add(sendFxGroup(ctx_, k).title);
+        setBoxItems(sendSlotBox_, titles, sendSlot_);
+        bindEditRows(sendRows_, kSendFxElem, info.empty ? std::vector<int>() : sendFxGroup(ctx_, sendSlot_).idx, rebindAll);
+    }
+}
+
+// The rows of a patch editor page for parameters `idx` of element `elem` (PatchEdit.h): a row is bound again only when
+// what it shows changes (another parameter, name or list of values), so a focused control is not disturbed.
+void HS2Editor::bindEditRows(std::vector<std::unique_ptr<ValueRow>>& rows, int elem, const std::vector<int>& idx,
+                             bool rebindAll) {
+    bool relayout = false;
+    for (size_t r = 0; r < rows.size(); ++r) {
+        auto& row = *rows[r];
+        if (r >= idx.size()) {
+            if (row.bound()) {
+                row.unbind();
+                relayout = true;
+            }
+            continue;
+        }
+        const int i = idx[r];
+        const bool ro = editReadOnly(ctx_, elem, i);
+        const auto name = editName(ctx_, elem, i);
+        const auto title = ro ? name + " (read only)" : name;
+        auto choices = editChoices(ctx_, elem, i);
+        const auto key = juce::String(elem) + ":" + juce::String(i);
+        bool same = !rebindAll && row.bound() && row.binding().key == key && row.binding().title == title &&
+                    row.binding().choices.size() == choices.size();
+        for (size_t k = 0; same && k < choices.size(); ++k) same = row.binding().choices[k].second == choices[k].second;
+        if (same) {
+            row.refresh();
+            continue;
+        }
+        ValueRow::Binding b;
+        b.key = key;
+        b.title = title;
+        b.description = name + ".";
+        b.readOnly = ro;
+        b.choices = std::move(choices);
+        b.get = [this, elem, i] { return ctx_.value(elem, i); };
+        b.text = [this, elem, i](float v) { return editText(ctx_, elem, i, v); };
+        if (!ro) {
+            b.set = [this, elem, i](float v) {
+                proc_.setEdit(part(), elem, i, v);
+                auto it = editsSeen_.find({elem, i});
+                if (it == editsSeen_.end()) editsSeen_[{elem, i}] = {v, snap_.get(elem, i)};
+                else it->second.value = v;
+            };
+            b.step = [this, elem, i](float v, int d) { return editStep(ctx_, elem, i, v, d); };
+            b.reset = [this, elem, i] {
+                proc_.resetEdit(part(), elem, i);
+                // shown at once; the next refresh takes the edits and values from the processor again
+                if (auto it = editsSeen_.find({elem, i}); it != editsSeen_.end()) it->second.value = it->second.original;
+            };
+        }
+        const bool wasVisible = row.isVisible();
+        row.bind(std::move(b));
+        relayout = relayout || !wasVisible;
+    }
+    if (relayout) resized();
 }
 
 void HS2Editor::refreshPages() {
@@ -1099,6 +1547,9 @@ void HS2Editor::refreshFromProcessor() {
 void HS2Editor::timerCallback() {
     refreshFromProcessor();
     refreshPages();
+    refreshEditPages(false);
+    if (page_ == pgGlobal)
+        for (auto& r : globalRows_) r->refresh();
     // Keyboard focus must always land somewhere a screen-reader user can Tab from: when this window has OS focus but
     // keyboard focus is nowhere useful, put it in the search box. In the standalone app the whole process is ours, so
     // being the foreground process is enough; inside a DAW only our own window having focus counts, so the DAW's
@@ -1136,7 +1587,7 @@ bool HS2Editor::keyPressed(const juce::KeyPress& key) {
                code == c - 'a' + 1;
     };
     if (key == KP(KP::tabKey, cmd, 0) || key == KP(KP::tabKey, cmdShift, 0)) {  // next / previous page
-        setPage((page_ + (key.getModifiers().isShiftDown() ? 4 : 1)) % 5, false);
+        setPage((page_ + (key.getModifiers().isShiftDown() ? int(kNumPages) - 1 : 1)) % int(kNumPages), false);
         focusPage();
         return true;
     }
@@ -1261,8 +1712,11 @@ void HS2Editor::showKeyboardHelp() {
         "Ctrl+Page Down / Ctrl+Page Up: next / previous patch.\n"
         "Ctrl+I: information about the selected part's patch.\n"
         "Ctrl+Tab / Ctrl+Shift+Tab: next / previous page (patch and mixer, part settings, arpeggiator, microtuning, "
-        "global effects); the Show box in the Part section chooses one too.\n"
+        "patch parameters, elements, patch send effects, global effects, global settings); the Show box in the Part "
+        "section chooses one too.\n"
         "Sliders: arrow keys, Page Up / Page Down, Home / End; Delete returns the slider to the patch's own setting.\n"
+        "Patch parameters, Elements and Patch send effects edit the selected part's patch: choose the element and "
+        "group at the top of the page. Edits are saved with the project and end when another patch loads.\n"
         "F1: this help.\n"
         "In REAPER, turn on \"Send all keyboard input to plug-in\" in the FX window's menu so these keys reach the "
         "plugin.";
