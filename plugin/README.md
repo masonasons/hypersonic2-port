@@ -139,7 +139,7 @@ Settings with a fixed list of values (note names, Transpose, Arp Mode...) are ch
 | Delete or Backspace | Return the focused slider to the patch's own setting (the value it loaded with; Master: the default volume) |
 | F1 | Keyboard help |
 
-On a Mac, use Cmd instead of Ctrl.
+On a Mac, use Cmd instead of Ctrl, except for Ctrl+Tab and Ctrl+Shift+Tab, which stay Ctrl (Cmd+Tab is the system's app switcher).
 
 In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so that these keys reach the plugin.
 

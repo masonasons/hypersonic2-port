@@ -1586,7 +1586,10 @@ bool HS2Editor::keyPressed(const juce::KeyPress& key) {
         return juce::CharacterFunctions::toLowerCase(juce::juce_wchar(code)) == juce::juce_wchar(c) ||
                code == c - 'a' + 1;
     };
-    if (key == KP(KP::tabKey, cmd, 0) || key == KP(KP::tabKey, cmdShift, 0)) {  // next / previous page
+    // Next / previous page: Ctrl+Tab on every platform (on a Mac Cmd+Tab belongs to the system's app switcher).
+    const auto ctrl = juce::ModifierKeys::ctrlModifier;
+    const auto ctrlShift = juce::ModifierKeys(juce::ModifierKeys::ctrlModifier | juce::ModifierKeys::shiftModifier);
+    if (key == KP(KP::tabKey, ctrl, 0) || key == KP(KP::tabKey, ctrlShift, 0)) {
         setPage((page_ + (key.getModifiers().isShiftDown() ? int(kNumPages) - 1 : 1)) % int(kNumPages), false);
         focusPage();
         return true;
@@ -1718,6 +1721,9 @@ void HS2Editor::showKeyboardHelp() {
         "Patch parameters, Elements and Patch send effects edit the selected part's patch: choose the element and "
         "group at the top of the page. Edits are saved with the project and end when another patch loads.\n"
         "F1: this help.\n"
+#if JUCE_MAC
+        "On a Mac, use Cmd for the Ctrl shortcuts above, except Ctrl+Tab and Ctrl+Shift+Tab, which stay Ctrl.\n"
+#endif
         "In REAPER, turn on \"Send all keyboard input to plug-in\" in the FX window's menu so these keys reach the "
         "plugin.";
     juce::NativeMessageBox::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "HS2 Port keyboard help", text,
