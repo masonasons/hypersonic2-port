@@ -103,6 +103,10 @@ public:
     // echo still on its way (or only on the right) is cut off when the last voice ends (e.g. 039/2 "Soloing"). With
     // ring-out an insert or send effect counts as audible for kRingSeconds after its input or output (either channel)
     // was last audible, so the part stays awake and its tail plays out.
+    // While a part (its inserts) or a send effect is awake only because of ring-out, the original's 1e-6 bias is not
+    // added: through gain (overdrive, limiter, EQ) its response alone counts as audible, which kept the part awake
+    // for ever with a quiet buzz at the host block rate (003/41 "Trance Constructor 4"). Those calls flush denormals
+    // instead (the bias is the original's guard against them).
     void setRingOut(bool on) { ringOut_ = on; }
     static constexpr double kRingSeconds = 4.5;
 
@@ -156,6 +160,7 @@ private:
         bool muted = false;                   // +0x41c (Mute; effects are not muted by their level)
         int fxType = 128;                     // +0xba4 (a new effect object only when the type changes)
         int ring = 0;                         // ring-out countdown (frames; not in the original)
+        bool quiet = false;                   // ring-out: last call its input was unused and its gate silent (no bias)
     };
     // Voice list entry (part+0xe0c + 8 i): the 64 slots are a permutation; the first count_ entries are playing,
     // sorted by element; the next free slot is the one at position count_ (the most recently freed).
@@ -241,6 +246,9 @@ private:
     int poly_ = 32;                       // part+0xbb0: patch Max Voices
     bool asleep_ = false;                 // part+0x1140
     bool ringOut_ = false;                // see setRingOut (not in the original)
+    bool insRingOnly_ = false;            // ring-out: last call had no voices and no insert tail of its own
+    bool noBias_ = false;                 // this call: no bias on the part bus (see setRingOut)
+    bool insOwnTail_ = false;             // this call: an insert with silent input reported audio (its own tail)
     MsvcRand ownRng_;
     MsvcRand& rng_;                       // ownRng_, or the engine's generator shared by every part
     // Engine mode (hs2::Engine): the shared buses / outputs, the master gain (content+0x12dc), master tune

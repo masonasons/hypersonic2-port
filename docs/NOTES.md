@@ -1137,3 +1137,19 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   functions are declared for _WIN32_WINNT 0x0601 (the same check flags 18 functions in the JUCE 9 build), and the
   only DLLs are kernel32, user32, gdi32, shell32, ole32, oleaut32, comdlg32, advapi32, shlwapi, winmm, imm32 and dxgi
   (CreateDXGIFactory). Not tested on a real Windows 7 machine here.
+- **Ring-out buzz (user: 003/41 "Trance Constructor 4", "the kick looped a tiny sample at a very low volume
+  forever"; 2026-11-11).** With ring-out on (the plugin default) the part never slept after a note: a steady -89 dB
+  signal repeating once per host block (32 samples at block 32, 512 at block 512: an 86 Hz buzz). Cause: the
+  original's 1e-6 bias at frame 0 of the part bus and before every insert / send effect. Through this kit's
+  overdrive, limiter and EQ inserts its response alone passed the ring-out test (2|x| > 1e-5), which restarted the
+  ring countdown every block, which kept the part awake, which added the bias again. The original sleeps as soon as
+  its gates report silence, so it never sees this. Fix (PatchPlayer, ring-out only): once a part has no voices and no
+  insert reports audio from a silent input (the original would sleep), it is tail-only until a voice plays: no bias
+  on its bus or before its inserts, denormals flushed for those calls (SSE FTZ/DAZ; the bias is the original's
+  denormal guard), and an insert's input counts for its ring only through its audio (otherwise each insert in a
+  chain adds 4.5 s). A send slot whose input was unused and whose gate was silent last call gets no bias either
+  (global ones too). Checked: ring-out off is byte-identical (lone part and engine); 003/41 now stops 7 s after the
+  note (4.5 s after the original would) instead of never; ring-out renders of 39/2, 7/0, 8/3, 10/5, 25/1, 30/4, 40/0
+  and 80/2 match the old ones in every window above -100 dB (1/0 differs only below -100 dB); 003/40 and 003/41
+  match note for note (difference -130 dB or lower) without the buzz; compare_with_hs2render.py and edit_checks.py
+  all OK.

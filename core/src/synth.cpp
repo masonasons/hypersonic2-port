@@ -8,11 +8,36 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#if defined(_M_X64) || defined(__x86_64__) || defined(_M_IX86) || defined(__i386__)
+#include <xmmintrin.h>
+#define HS2_SSE_CSR 1
+#endif
 
 namespace hs2 {
 
 namespace {
 constexpr float kDrive = 0.33f;  // plugin default (this+0xae8); TODO: expose as the setup parameter
+// Ring-out calls without the bias flush denormals (flush to zero + denormals are zero) while in scope.
+struct FlushDenormals {
+#ifdef HS2_SSE_CSR
+    unsigned old = 0;
+    bool on;
+    explicit FlushDenormals(bool enable) : on(enable) {
+        if (on) {
+            old = _mm_getcsr();
+            _mm_setcsr(old | 0x8040u);
+        }
+    }
+    ~FlushDenormals() {
+        if (on) _mm_setcsr(old);
+    }
+#else
+    explicit FlushDenormals(bool) {}
+#endif
+    FlushDenormals(const FlushDenormals&) = delete;
+    FlushDenormals& operator=(const FlushDenormals&) = delete;
+};
+
 constexpr float kBias = 1e-6f;   // FIX: FUN_100139c0 / FUN_1000f130 add 1e-6 to frame 0 of a bus (0x358637bd)
 
 void addScaled(float* dst, const float* src, int frames, float gl, float gr) {  // FUN_1000ffe0 / FUN_1000f660
@@ -1754,11 +1779,14 @@ void PatchPlayer::processInsert(int ei, bool beforeLastVoice, int n, bool& fxSil
                                 float* const* sendBus, bool* const* sendUsed, int ofs) {
     Elem& el = elems_[ei];
     if (!el.isEffect || el.orig == 0) return;  // the loop starts at element 1
-    bus_[0] += kBias;
-    bus_[1] += kBias;
+    if (!noBias_) {
+        bus_[0] += kBias;
+        bus_[1] += kBias;
+    }
     if (el.fx && !el.muted) {
         const bool in = fxSilent;
         el.fx->processGated(bus_.data(), n, fxSilent);
+        if (in && !fxSilent) insOwnTail_ = true;
         ringOut(el.ring, in, fxSilent, bus_.data(), n);
     }
     if (!beforeLastVoice && !fxSilent) partSilent = false;
@@ -1780,7 +1808,7 @@ void PatchPlayer::processInsert(int ei, bool beforeLastVoice, int n, bool& fxSil
     }
     if (el.auxOut > 1) {
         std::fill(bus_.begin(), bus_.end(), 0.f);
-        bus_[0] = bus_[1] = kBias;
+        bus_[0] = bus_[1] = noBias_ ? 0.f : kBias;
         fxSilent = true;
     }
 }
@@ -1879,8 +1907,13 @@ bool PatchPlayer::renderCall(float* out, int n, double songPos, int sendOfs) {
         if (el.fx) el.fx->setSongPos(songPos);  // process() args 3/4
     for (auto& s : sendFx_)
         if (s.fx && (ownSends_ || eng_)) s.fx->setSongPos(songPos);
+    // ring-out: a part awake only for its tails (no voices, no insert tail of the original's own) gets no bias
+    const bool voicesAtStart = count_ > 0;
+    noBias_ = ringOut_ && insRingOnly_ && !voicesAtStart;
+    insOwnTail_ = false;
+    FlushDenormals flush(noBias_);
     bus_.assign(size_t(n) * 2, 0.f);
-    bus_[0] = bus_[1] = kBias;
+    bus_[0] = bus_[1] = noBias_ ? 0.f : kBias;
     // FIX: the patch LFOs tick once per 32 frames of the call: pairs (LFO1, LFO2) for i < n >> 4, step 2, then
     // the last pair is repeated; a call < 16 frames leaves the array as it was. Voices read one pair per control
     // update from the start of the array.
@@ -1939,9 +1972,14 @@ bool PatchPlayer::renderCall(float* out, int n, double songPos, int sendOfs) {
             // FUN_1000f130: silent = nothing was sent to this bus; +1e-6 at frame 0 before the effect; the return
             // is used only if the effect cleared the flag
             bool sil = !sendUsed[k2];
-            sendBus_[k2][0] += kBias;
-            sendBus_[k2][1] += kBias;
+            const bool skip = ringOut_ && s.quiet && sil;
+            FlushDenormals flushSend(skip && !noBias_);
+            if (!skip) {
+                sendBus_[k2][0] += kBias;
+                sendBus_[k2][1] += kBias;
+            }
             s.fx->processGated(sendBus_[k2].data(), n, sil);
+            s.quiet = !sendUsed[k2] && sil;
             ringOut(s.ring, !sendUsed[k2], sil, sendBus_[k2].data(), n);
             if (sil) continue;
             partSilent = false;
@@ -1969,15 +2007,21 @@ bool PatchPlayer::renderCall(float* out, int n, double songPos, int sendOfs) {
     // FIX: a silent call (no voices, inserts and send FX silent) puts the part to sleep until the next MIDI
     // event (part+0x1140; not while the arp runs, arp +0x186): no LFO ticks, no effect calls. See setRingOut.
     asleep_ = partSilent && !arp_->running();  // @10014879: not while the arp runs
+    // ring-out: once nothing of the original's own keeps the part awake (no voices, no insert reporting audio from a
+    // silent input), it stays tail-only until a voice plays: an insert fed by another's ring-out may report a tail
+    // later, but that is ring-out's tail, not the original's
+    insRingOnly_ = ringOut_ && !voicesAtStart && count_ == 0 && !arp_->running() && (insRingOnly_ || !insOwnTail_);
     return partSilent;
 }
 
 // Ring-out mode (setRingOut; not in the original): after an effect's gated process, keep it "not silent" for
 // kRingSeconds after its input was used or its output was audible on either channel (the original's test,
-// 2|x| > 1e-5, on L or R), so the part does not sleep and the effect's output keeps reaching the outputs.
+// 2|x| > 1e-5, on L or R), so the part does not sleep and the effect's output keeps reaching the outputs. In a
+// tail-only call (noBias_) an input counts only through its audio: the "used" flags then come from other effects'
+// ring-out, and a chain of inserts would otherwise add kRingSeconds per insert.
 void PatchPlayer::ringOut(int& ring, bool inSilent, bool& outSilent, const float* lr, int frames) const {
     if (!ringOut_) return;
-    bool audible = !inSilent;
+    bool audible = !inSilent && !noBias_;
     for (int i = 0; i < 2 * frames && !audible; ++i) audible = double(std::fabs(lr[i])) * 2.0 > double(1e-05f);
     if (audible) {
         ring = int(double(c_.sr) * kRingSeconds);
@@ -2010,10 +2054,16 @@ bool PatchPlayer::sendFxRender(int n, double songPos, int ofs, bool* ownUsed) {
         bool silent = !used;
         SendFx& s = sendFx_[k];
         if (!s.muted && s.fx) {
-            bus[0] += kBias;
-            bus[1] += kBias;
+            // ring-out: no bias while the slot's input is unused and its gate was silent last call (see setRingOut)
+            const bool skip = ringOut_ && s.quiet && !used;
+            FlushDenormals flushSend(skip && !noBias_);
+            if (!skip) {
+                bus[0] += kBias;
+                bus[1] += kBias;
+            }
             s.fx->setSongPos(songPos);
             s.fx->processGated(bus, n, silent);
+            s.quiet = !used && silent;
             ringOut(s.ring, !used, silent, bus, n);
             if (!silent) {
                 any = true;
