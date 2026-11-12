@@ -76,7 +76,8 @@ across loads, such as mute and level). Patches are not written back to the conte
 (`tests/make_test_content.py`: an Analog + insert Delay patch, a Sample patch, an effect preset) and runs
 - `tests/host_test.cpp`: the plugin API with a fake Move clock: scan, missing content, loading, every menu address
   (name, text, step), element edits, channel routing, arp on the clock, effect presets, program changes, state
-  round trip, rescan. Also run clean under AddressSanitizer and ThreadSanitizer (`EXTRA_CXXFLAGS=-fsanitize=...
+  round trip, rescan; with `make_test_content.py --big`, six sample patches: memory while scrolling, a replaced
+  patch's ringing note, the preload budget. Also run clean under AddressSanitizer and ThreadSanitizer (`EXTRA_CXXFLAGS=-fsanitize=...
   NATIVE_SUFFIX=-asan schwung/build.sh --native`).
 - `tests/ui_test.mjs`: the real `ui.js` with Schwung's shared UI libraries against the DSP (`tests/dsp_bridge.cpp`),
   pressing Move's controls and checking what is spoken. Needs node and Schwung's `shared/` folder (`SCHWUNG_SHARED`,
@@ -86,15 +87,28 @@ across loads, such as mute and level). Patches are not written back to the conte
 
 Addresses: `M` master · `P<p>.<j>` part VST parameter · `G<k>.<j>` global effect · `X<p>.<i>` patch parameter ·
 `E<p>.<e>.<i>` element (setter index) parameter · `C<p>` channel · `B<p>` patch · `K<p>` bank · `F<k>` effect preset ·
-`Z<n>` setting · `A` active part. For each: `n:<addr>` name, `t:<addr>` value text, `v:<addr>` raw value (get/set),
+`Z<n>` setting · `A` active part. `mem`: decoded sample bytes. For each: `n:<addr>` name, `t:<addr>` value text, `v:<addr>` raw value (get/set),
 `r:<addr>` read only, `step:<addr>` = delta.
 Lists: `pinfo:<p>`, `elems:<p>`, `elay:<p>.<e>`, `play:<p>`, `lay:<group>[.<p>]` (setup, knobs, keys, voice, arp,
 tuning, sends, gfx, settings), `banks`, `bankp:<row>`. Also `ready`, `status`, `part`, `state`, `load:<p>`, `rescan`,
 `panic`, and the chain knobs `hk1`-`hk6`, `level`, `pan`, `preset`, `preset_count`, `preset_name`.
 
+## Sample memory
+
+Decoded samples take far more memory than the files: about 8 times for the factory's compressed samples, 2 times for
+16-bit ones, so a multisampled piano can need hundreds of MB. The module keeps only what can still sound:
+
+- After every load (and every 2 s), the samples that no part's patch uses and no ringing note plays are freed.
+  Scrolling through a bank keeps at most the four current patches, plus replaced patches until their notes end.
+- With Settings > Preload Samples on (the default), a new patch's samples decode on the loader thread right after it
+  starts playing, so its first notes do not decode on the audio thread. The preload yields to newer loads and stops at
+  256 MB of decoded samples in all; past that, samples decode when first played. Off: always on first play.
+
+Schwung's `debug.log` shows each preload ("Part 1 ...: 42.0 MB of samples ready") and release ("samples: released
+...") and `get_param("mem")` the decoded bytes.
+
 ## Not verified on hardware
 
 Built and tested on the desktop only. Untested on a Move: CPU load of heavy patches (reverbs, many voices) on the
-Move's processor; memory use of large sample banks; first-note sample decoding on the audio thread (enable
-Settings > Preload Samples to decode while loading, at the cost of memory); the asset installer's handling of the
-content's extension-less bank files (copy with `scp` if it refuses them).
+Move's processor; whether 256 MB of decoded samples plus four large patches fits next to Move's own memory use; the
+asset installer's handling of the content's extension-less bank files (copy with `scp` if it refuses them).

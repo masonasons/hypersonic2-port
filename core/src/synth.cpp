@@ -1355,18 +1355,29 @@ int PatchPlayer::elementGain(int ei, int tnote, int vel, uint32_t trig, bool mon
     return gk * (monoHasVoices ? 10000 : int(p.velGain[nv]));
 }
 
-size_t PatchPlayer::preloadSamples() {
+size_t PatchPlayer::preloadSamples(const std::function<bool()>& keepGoing) {
     size_t bytes = 0;
     for (auto& el : elems_) {
         if (el.p.type != ElementType::Sample || !el.p.hasData || !el.inst || !el.bank) continue;
         const auto& zones = el.p.eco && !el.inst->ecoZones.empty() ? el.inst->ecoZones : el.inst->zones;
         for (const auto& z : zones) {
             if (z.sample == 0 || z.sample >= el.bank->sampleCount()) continue;
-            if (const SampleData* sd = el.bank->sample(z.sample))
-                bytes += (sd->data.size() + sd->delta.size() + sd->checkpoint.size()) * sizeof(float);
+            if (keepGoing && !keepGoing()) return bytes;
+            if (const SampleData* sd = el.bank->sample(z.sample)) bytes += SampleBank::bytesOf(*sd);
         }
     }
     return bytes;
+}
+
+void PatchPlayer::collectSampleRefs(SampleRefs& out) const {
+    for (const auto& el : elems_) {
+        if (!el.bank || !el.inst) continue;
+        for (const auto* zs : {&el.inst->zones, &el.inst->ecoZones})
+            for (const auto& z : *zs)
+                if (z.sample) out.zones.push_back({el.bank, z.sample});
+    }
+    for (const auto& v : voices_)
+        if (v && v->lastSample()) out.voices.push_back(v->lastSample());
 }
 
 // FUN_10010130: remove list entry pos; its slot becomes the next free one.

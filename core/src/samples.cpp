@@ -68,7 +68,37 @@ const SampleData* SampleBank::sample(uint32_t index) {
         if (!decodeSampleBlock(blk.data(), blk.size(), *sd)) sd.reset();
     }
     std::lock_guard<std::mutex> lk(mu_);
-    return cache_.emplace(index, std::move(sd)).first->second.get();
+    auto [it, added] = cache_.emplace(index, std::move(sd));
+    if (added && it->second) bytes_ += bytesOf(*it->second);
+    return it->second.get();
+}
+
+size_t SampleBank::bytesOf(const SampleData& sd) {
+    return (sd.data.capacity() + sd.delta.capacity() + sd.checkpoint.capacity()) * sizeof(float) + sizeof(SampleData);
+}
+
+size_t SampleBank::decodedBytes() const {
+    std::lock_guard<std::mutex> lk(mu_);
+    return bytes_;
+}
+
+size_t SampleBank::release(const std::function<bool(uint32_t, const SampleData*)>& keep,
+                           std::vector<std::unique_ptr<SampleData>>& out) {
+    std::lock_guard<std::mutex> lk(mu_);
+    size_t freed = 0;
+    for (auto it = cache_.begin(); it != cache_.end();) {
+        // a failed decode (nullptr) costs nothing; keeping it avoids decoding it again
+        if (!it->second || keep(it->first, it->second.get())) {
+            ++it;
+            continue;
+        }
+        const size_t b = bytesOf(*it->second);
+        freed += b;
+        bytes_ -= b;
+        out.push_back(std::move(it->second));
+        it = cache_.erase(it);
+    }
+    return freed;
 }
 
 // Sample block: 16-byte header | [compressed: seek table, 256*channels bytes] | audio

@@ -3,6 +3,7 @@
 // Formats: extract script/milan_decode.py, docs/engine/sample_voice.md.
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -52,16 +53,25 @@ class SampleBank {
 public:
     static std::unique_ptr<SampleBank> open(const std::filesystem::path& path);
     std::vector<Instrument> instruments;
-    // Decoded on first use and kept; nullptr if missing/unsupported. Thread-safe (the decode runs outside the lock;
-    // two threads decoding the same sample at once keep the first result).
+    // Decoded on first use and kept until release() drops it; nullptr if missing/unsupported. Thread-safe (the decode
+    // runs outside the lock; two threads decoding the same sample at once keep the first result).
     const SampleData* sample(uint32_t index);
+    // Bytes the decoded samples hold now.
+    size_t decodedBytes() const;
+    // Drops the decoded samples `keep` rejects (by index and data); their storage moves to `out`, so the caller can
+    // free it after releasing whatever lock keeps the players from using the bank. Returns the bytes moved. The
+    // caller guarantees that nothing reads a dropped sample (no voice plays it, no thread is inside sample()).
+    size_t release(const std::function<bool(uint32_t index, const SampleData* sd)>& keep,
+                   std::vector<std::unique_ptr<SampleData>>& out);
+    static size_t bytesOf(const SampleData& sd);
     const MilanBank& bank() const { return *bank_; }
     size_t sampleCount() const { return bank_->records.size(); }  // secondary records (0 = sentinel)
 
 private:
     std::unique_ptr<MilanBank> bank_;
     std::map<uint32_t, std::unique_ptr<SampleData>> cache_;  // guarded by mu_ (nodes never move)
-    std::mutex mu_;
+    size_t bytes_ = 0;                                       // guarded by mu_
+    mutable std::mutex mu_;
 };
 
 // Decoders (exposed for tests).

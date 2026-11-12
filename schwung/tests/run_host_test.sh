@@ -7,9 +7,9 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 cd "$ROOT"
 schwung/build.sh --native
 OUT=build/schwung-native
-python3 -I schwung/tests/make_test_content.py "$OUT/test-content" >/dev/null
+python3 -I schwung/tests/make_test_content.py "$OUT/test-content" --big "$OUT/test-content-big" >/dev/null
 "${CXX:-c++}" -std=c++20 -O1 -g -Ischwung/src schwung/tests/host_test.cpp -o "$OUT/host_test" -ldl -pthread
-"$OUT/host_test" "$ROOT/$OUT/hs2_module.so" "$ROOT/$OUT/test-content"
+"$OUT/host_test" "$ROOT/$OUT/hs2_module.so" "$ROOT/$OUT/test-content" "$ROOT/$OUT/test-content-big"
 
 # The UI against the DSP (needs node and Schwung's shared UI libraries: SCHWUNG_SHARED, or ~/schwung.tar.gz).
 if command -v node >/dev/null 2>&1; then

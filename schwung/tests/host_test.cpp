@@ -2,11 +2,13 @@
 // way Schwung's chain host does, with a fake host clock, against the synthetic content of make_test_content.py.
 // Covers: content scan, missing content, patch browsing and loading, every menu address (name / text / step),
 // element editing, the Hyperknobs, channel routing, global effect presets, the arpeggiator on Move's clock,
-// program changes, state save / restore and rescans.
+// program changes, state save / restore and rescans; with a third argument, the sample cache's memory while
+// scrolling through sample patches (preload, release of samples nothing plays, the preload budget).
 //
 //   schwung/tests/run_host_test.sh
 #include <dlfcn.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -96,7 +98,7 @@ static std::vector<std::pair<std::string, std::string>> addrs(const std::string&
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: host_test <hs2_module.so> <test content folder>\n");
+        std::fprintf(stderr, "usage: host_test <hs2_module.so> <test content folder> [<big sample content folder>]\n");
         return 2;
     }
     void* h = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
@@ -293,6 +295,70 @@ int main(int argc, char** argv) {
     m.set("panic", "1");
     m.render(10);
     api->destroy_instance(m.inst);
+
+    // ---- sample memory (make_test_content.py --big): six sample patches of ~1.4 MB decoded each
+    if (argc > 3) {
+        const double kPatch = 8.0 * 44104 * 4;  // 8 zones of 1 s mono floats (+ guard frames)
+        auto mb = [](double b) { return b / 1048576.0; };
+        setenv("HS2_CONTENT", argv[3], 1);
+        Mod b{api, api->create_instance("/tmp", nullptr)};
+        auto mem = [&] { return std::atof(b.get("mem").c_str()); };
+        CHECK(b.waitFor([&] { return b.get("ready") == "1"; }), "big content scanned");
+        CHECK(b.get("preset_count") == "6", "6 big patches, got %s", b.get("preset_count").c_str());
+        CHECK(b.waitLoaded(0) && b.waitLoaded(3), "big patches in every part");
+        // preload (on by default) decodes the four patches on the loader, before any note
+        CHECK(b.waitFor([&] { return mem() >= 3.9 * kPatch; }), "four patches preloaded: %.1f MB", mb(mem()));
+        // scroll part 1 through the whole bank (patches 2-4 are in parts 2-4, 5 and 6 only in part 1), waiting for
+        // each patch: memory stays at four patches
+        double most = 0;
+        for (int i = 0; i < 5; ++i) {
+            b.set("step:B0", "1");
+            b.waitLoaded(0);
+            b.waitFor([&] { return mem() <= 4.2 * kPatch; }, 3000);
+            most = std::max(most, mem());
+        }
+        CHECK(b.get("pinfo:0").find("Big Piano 6") != std::string::npos, "scrolled to the last patch: %s",
+              b.get("pinfo:0").c_str());
+        CHECK(most <= 4.2 * kPatch, "memory stays at four patches while scrolling: at most %.1f MB", mb(most));
+        for (int i = 0; i < 12; ++i) b.set("step:B0", i % 2 ? "1" : "-1");  // and quickly (ends on patch 6)
+        b.waitLoaded(0);
+        CHECK(b.waitFor([&] { return mem() <= 4.2 * kPatch; }), "and after quick scrolling: %.1f MB", mb(mem()));
+        // a note still sounding from a replaced patch keeps its samples until it ends
+        b.midi(0x90, 60, 110);
+        b.render(20);
+        b.set("step:B0", "-1");  // patch 5; patch 6's note sounds on (cut on load is off)
+        b.waitLoaded(0);
+        CHECK(b.waitFor([&] { return mem() >= 4.9 * kPatch; }), "patch 6 kept while its note sounds, patch 5 preloaded: "
+              "%.1f MB", mb(mem()));
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));  // sweeps run while the old note plays
+        const double held = b.render(30);
+        CHECK(held > 1e-4, "the replaced patch's note plays on after the sweeps (rms %.6f)", held);
+        b.midi(0x80, 60, 0);
+        b.render(400);  // the release ends and the old part goes
+        CHECK(b.waitFor([&] { return mem() <= 4.2 * kPatch; }, 8000), "released after the old note ended: %.1f MB",
+              mb(mem()));
+        // the new patch plays (its samples are preloaded or decode on first use). The synthetic element sounds around
+        // C3 only (quiet below, silent from 72 up), so the checks play 60 and 64.
+        b.midi(0x90, 64, 110);
+        const double now = b.render(40);
+        b.midi(0x80, 64, 0);
+        CHECK(now > 1e-4, "the new patch sounds (rms %.6f)", now);
+        api->destroy_instance(b.inst);
+
+        // a small preload budget: the preload stops there, notes still decode on first use
+        setenv("HS2_PRELOAD_MB", "2", 1);
+        Mod c{api, api->create_instance("/tmp", nullptr)};
+        CHECK(c.waitFor([&] { return c.get("ready") == "1"; }) && c.waitLoaded(0) && c.waitLoaded(3), "budget instance");
+        c.render(200);
+        const double cm = std::atof(c.get("mem").c_str());
+        CHECK(cm <= 2.0 * 1048576 + 44104 * 4 + 1024, "preload stops at the budget: %.2f MB", mb(cm));
+        c.midi(0x93, 64, 110);  // part 4: the budget ran out in part 2's preload
+        const double lazy = c.render(40);
+        c.midi(0x83, 64, 0);
+        CHECK(lazy > 1e-4, "a zone past the budget decodes when played (rms %.6f)", lazy);
+        unsetenv("HS2_PRELOAD_MB");
+        api->destroy_instance(c.inst);
+    }
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

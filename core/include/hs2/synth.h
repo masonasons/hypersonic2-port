@@ -11,6 +11,7 @@
 // sizes the same way the original's does (the patch LFOs tick once per 32 frames of a part render call).
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -113,7 +114,16 @@ public:
     // Decodes every sample the loaded patch's sample elements can play (the zone set a note would use), so the first
     // notes do not decode on the audio thread. For a loader thread; returns the decoded bytes now held. Samples are
     // shared and kept by the content (SampleBank cache), so a part loaded later gets them at once.
-    size_t preloadSamples();
+    // keepGoing (optional) is asked before each sample; false stops the preload there (a newer load, a memory budget).
+    size_t preloadSamples(const std::function<bool()>& keepGoing = {});
+
+    // Every decoded sample this part can still read: the zones of its sample elements (both zone sets) and the
+    // samples its voices hold. Whatever no part lists may be released (Content::releaseSamples) while no player runs.
+    struct SampleRefs {
+        std::vector<std::pair<const SampleBank*, uint32_t>> zones;
+        std::vector<const SampleData*> voices;
+    };
+    void collectSampleRefs(SampleRefs& out) const;
 
     // Part getParam FUN_1000cea0: elem 0 = patch parameter, 1..0x40 element record elem-1, 0x41..0x44 send FX slot.
     float getParam(int elem, int idx) const;

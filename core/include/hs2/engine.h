@@ -106,6 +106,9 @@ public:
     std::vector<ProgramRequest> takeProgramRequests();
 
     int outputs() const { return outputs_; }
+    // PatchPlayer::collectSampleRefs for every player: the current, pending, still sounding and fading parts and the
+    // global effects part. Call it where render cannot run (the host's render lock).
+    void collectSampleRefs(PatchPlayer::SampleRefs& out) const;
     PatchPlayer& part(int p) { return *slots_[size_t(p)].latest(); }
     PatchPlayer& globalPart() { return *global_; }
     // The effect type in global send FX slot k (0..3): effects.h numbering, 128 = none.

@@ -16,6 +16,7 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstdarg>
@@ -30,6 +31,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "FxText.h"
@@ -557,7 +559,7 @@ struct Settings {
     float hype = 0.33f, velSens = 0.5f, touchSens = 0.5f;
     int tuneSemis = 0;
     int tuneCents = 0;
-    int preload = 0;          // decode every sample of a patch while loading (memory!)
+    int preload = 1;          // decode a new patch's samples on the loader thread, up to Instance::preloadBudget
 };
 
 struct Instance {
@@ -610,6 +612,19 @@ struct Instance {
     std::array<std::optional<FxJob>, 4> fxJobs;
     std::string status = "Scanning content...";
     std::string error;
+    // Decoded samples: preloads stop when the cache holds this much (later notes still decode on first use). The
+    // cache only keeps what a part can still play: releaseUnusedSamples drops the rest after loads.
+    size_t preloadBudget = size_t(256) << 20;
+    bool sweepDue = false;  // worker only: a load finished, release the samples nothing uses once it is applied
+    // Worker only: loads whose samples still need decoding (the load's throwaway player, which reads the patch's
+    // zones). They run when no load is queued, so four parts loading at once each get their patch first; a newer load
+    // for the part drops its entry. Declared after content: destroyed before it.
+    struct Preload {
+        std::unique_ptr<hs2::PatchPlayer> player;
+        uint64_t gen = 0;
+        std::string label;
+    };
+    std::array<std::optional<Preload>, kParts> preloads;
 
     void setStatus(const std::string& s) {
         std::lock_guard<std::mutex> lk(qmu);
@@ -639,6 +654,8 @@ struct Instance {
     void scan();
     void runLoad(int part, LoadJob job);
     void runFx(int k, FxJob job);
+    bool releaseUnusedSamples();   // worker; false = deferred (a load is still waiting for the audio thread)
+    void runPreloads();            // worker
     void applyCommands();          // audio thread, mu held
     void applySettings();          // mu held
     std::string stateJson();       // mu held
@@ -789,14 +806,10 @@ void Instance::runLoad(int part, LoadJob job) {
         auto patch = std::make_shared<hs2::Patch>(hs2::Patch::parse(data));
         // A throwaway player reads the sample banks / wavetables into the shared caches, so the engine's own load on
         // the audio thread finds them there (as the plugin's loader does).
-        std::vector<std::string> warnings;
-        {
-            hs2::PatchPlayer tmp(*C, sr);
-            tmp.setMemoryMode(mem);
-            tmp.load(*patch);
-            if (preload) tmp.preloadSamples();
-            warnings = tmp.warnings();
-        }
+        auto tmp = std::make_unique<hs2::PatchPlayer>(*C, sr);
+        tmp->setMemoryMode(mem);
+        tmp->load(*patch);
+        const std::vector<std::string> warnings = tmp->warnings();
         Command cmd;
         cmd.kind = Command::loadPatch;
         cmd.part = part;
@@ -821,6 +834,7 @@ void Instance::runLoad(int part, LoadJob job) {
             inf.elems.push_back({int(r) + 1, int(hs2::elementType(rec)), ascii(rec.name)});
         }
         for (const auto& w : warnings) inf.warning += (inf.warning.empty() ? "" : "; ") + w;
+        const std::string shownName = inf.name, warningText = inf.warning;  // inf moves into cmds below
         {
             std::lock_guard<std::mutex> lk(mu);
             {
@@ -835,8 +849,11 @@ void Instance::runLoad(int part, LoadJob job) {
             restoring[size_t(part)].reset();
             cmds.push_back(std::move(cmd));
         }
-        setStatus(partName + ": " + inf.name);
-        if (!warnings.empty()) logf("%s %s: not supported yet: %s", partName.c_str(), inf.name.c_str(), inf.warning.c_str());
+        setStatus(partName + ": " + shownName);
+        if (!warnings.empty()) logf("%s %s: not supported yet: %s", partName.c_str(), shownName.c_str(), warningText.c_str());
+        // The patch plays already; its samples decode on this thread instead of on the audio thread at the first notes
+        // (runPreloads, once no other load waits).
+        if (preload) preloads[size_t(part)] = Preload{std::move(tmp), job.gen, partName + " " + shownName};
     } catch (const std::exception& e) {
         {
             std::lock_guard<std::mutex> lk(mu);
@@ -912,15 +929,27 @@ void Instance::workerLoop() {
         FxJob fj;
         {
             std::unique_lock<std::mutex> lk(qmu);
-            cv.wait(lk, [this] {
+            const auto queued = [this] {
                 if (quit || scanRequested) return true;
                 for (const auto& j : jobs)
                     if (j) return true;
                 for (const auto& j : fxJobs)
                     if (j) return true;
                 return false;
-            });
+            };
+            bool preloadsDue = false;
+            for (const auto& p : preloads) preloadsDue = preloadsDue || p.has_value();
+            // idle: preloads first, then a sweep soon after a load (once it is applied) and every 2 s (sounding notes
+            // of replaced patches end)
+            const bool woke = preloadsDue ? queued()
+                                          : cv.wait_for(lk, std::chrono::milliseconds(sweepDue ? 100 : 2000), queued);
             if (quit) return;
+            if (!woke) {
+                lk.unlock();
+                if (preloadsDue) runPreloads();
+                else if (releaseUnusedSamples()) sweepDue = false;
+                continue;
+            }
             if (scanRequested) {
                 scanRequested = false;
                 doScan = true;
@@ -941,6 +970,7 @@ void Instance::workerLoop() {
             }
         }
         if (doScan) {
+            for (auto& p : preloads) p.reset();  // their players read the old content
             scan();
             std::string st;
             {
@@ -968,9 +998,78 @@ void Instance::workerLoop() {
             }
             continue;
         }
-        if (part >= 0) runLoad(part, std::move(lj));
-        else if (fxk >= 0) runFx(fxk, std::move(fj));
+        if (part >= 0) {
+            runLoad(part, std::move(lj));
+            sweepDue = true;
+        } else if (fxk >= 0) {
+            runFx(fxk, std::move(fj));
+        }
     }
+}
+
+void Instance::runPreloads() {
+    for (int p = 0; p < kParts; ++p) {
+        auto& pl = preloads[size_t(p)];
+        if (!pl) continue;
+        {
+            std::lock_guard<std::mutex> q(qmu);
+            if (pl->gen != loadGen[size_t(p)]) {  // a newer load for this part
+                pl.reset();
+                continue;
+            }
+        }
+        hs2::Content* C;
+        {
+            std::lock_guard<std::mutex> lk(mu);
+            C = content.get();
+        }
+        const auto t0 = std::chrono::steady_clock::now();
+        bool interrupted = false, full = false;
+        const size_t got = pl->player->preloadSamples([&] {
+            {
+                std::lock_guard<std::mutex> q(qmu);
+                if (quit || scanRequested) return !(interrupted = true);
+                for (const auto& j : jobs)
+                    if (j) return !(interrupted = true);
+            }
+            if (C->decodedSampleBytes() >= preloadBudget) return !(full = true);
+            return true;
+        });
+        if (interrupted) return;  // a load waits: it goes first, this preload resumes after it
+        if (got)
+            logf("%s: %.1f MB of samples ready%s (%.0f ms, %.1f MB decoded in all)", pl->label.c_str(),
+                 double(got) / 1048576.0, full ? ", stopped at the preload budget" : "",
+                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(),
+                 double(C->decodedSampleBytes()) / 1048576.0);
+        pl.reset();
+    }
+}
+
+// Frees the decoded samples no player can read any more: not in a zone of a loaded, pending, still sounding or
+// fading part, and held by no voice. Under mu render cannot run, and the only other reader of the sample caches
+// (a load's throwaway player) runs on this thread. The memory itself is freed after mu is released.
+bool Instance::releaseUnusedSamples() {
+    std::vector<std::unique_ptr<hs2::SampleData>> dead;
+    size_t freed = 0, held = 0;
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        if (!content || !engine) return true;
+        if (!cmds.empty()) return false;  // a prepared load whose samples are not in the engine yet
+        hs2::PatchPlayer::SampleRefs refs;
+        engine->collectSampleRefs(refs);
+        std::sort(refs.zones.begin(), refs.zones.end());
+        const std::unordered_set<const hs2::SampleData*> playing(refs.voices.begin(), refs.voices.end());
+        freed = content->releaseSamples(
+            [&](const hs2::SampleBank* b, uint32_t i, const hs2::SampleData* sd) {
+                return playing.count(sd) || std::binary_search(refs.zones.begin(), refs.zones.end(),
+                                                               std::pair<const hs2::SampleBank*, uint32_t>{b, i});
+            },
+            dead);
+        if (freed) held = content->decodedSampleBytes();
+    }
+    dead.clear();
+    if (freed) logf("samples: released %.1f MB, %.1f MB still decoded", double(freed) / 1048576.0, double(held) / 1048576.0);
+    return true;
 }
 
 // Audio thread, mu held: the loads the worker prepared.
@@ -1786,7 +1885,7 @@ struct Api {  // everything below runs with Instance::mu held
 // ------------------------------------------------------------------------------------------------ state
 
 std::string Instance::stateJson() {
-    std::string s = "{\"v\":1,\"active\":" + std::to_string(active);
+    std::string s = "{\"v\":2,\"active\":" + std::to_string(active);
     s += ",\"set\":[" + std::to_string(set.midiPc) + "," + std::to_string(set.ringOut) + "," +
          std::to_string(set.cutOnLoad) + "," + std::to_string(set.memory) + "," + fnum(set.hype) + "," +
          fnum(set.velSens) + "," + fnum(set.touchSens) + "," + std::to_string(set.tuneSemis) + "," +
@@ -1859,7 +1958,7 @@ void Instance::restoreState(const std::string& str) {
             set.touchSens = float(n(6));
             set.tuneSemis = std::clamp(int(n(7)), -12, 12);
             set.tuneCents = std::clamp(int(n(8)), -50, 50);
-            set.preload = n(9) > 0.5;
+            if (root.num("v", 1) >= 2) set.preload = n(9) > 0.5;  // v1 saved the old default (off) unasked
             if (engine) {
                 engine->setMemoryMode(memoryValue(set.memory));
                 applySettings();
@@ -1948,6 +2047,8 @@ void* v2_create(const char* moduleDir, const char* /*defaults*/) {
     I->moduleDir = moduleDir ? moduleDir : ".";
     I->contentRoot = fs::path(I->moduleDir) / "content";
     if (const char* env = std::getenv("HS2_CONTENT"); env && *env) I->contentRoot = env;  // desktop tests
+    if (const char* env = std::getenv("HS2_PRELOAD_MB"); env && *env)  // desktop tests
+        I->preloadBudget = size_t(std::max(0.0, std::atof(env)) * 1048576.0);
     I->buf.resize(2 * 4096);
     I->events.reserve(512);
     I->worker = std::thread([I] { I->workerLoop(); });
@@ -2127,6 +2228,7 @@ int v2_get_param(void* inst, const char* key, char* buf, int len) {
     if (k == "status") return writeOut(buf, len, I->getStatus());
     std::lock_guard<std::mutex> lk(I->mu);
     if (k == "ready") return writeOut(buf, len, std::to_string(I->scanState));
+    if (k == "mem") return writeOut(buf, len, std::to_string(I->content ? I->content->decodedSampleBytes() : 0));
     if (k == "part") return writeOut(buf, len, std::to_string(I->active));
     if (k == "state") return writeOut(buf, len, I->stateJson());
     if (k == "preset_count") return writeOut(buf, len, std::to_string(I->browse.size()));

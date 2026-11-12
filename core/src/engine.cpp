@@ -100,6 +100,19 @@ std::unique_ptr<PatchPlayer> Engine::newPart() {
     return p;
 }
 
+void Engine::collectSampleRefs(PatchPlayer::SampleRefs& out) const {
+    for (const auto& s : slots_) {
+        if (s.cur) s.cur->collectSampleRefs(out);
+        for (const auto& p : s.old)
+            if (p) p->collectSampleRefs(out);
+        for (const auto& p : s.pending)
+            if (p) p->collectSampleRefs(out);
+        for (const auto& f : s.fading)
+            if (f.p) f.p->collectSampleRefs(out);
+    }
+    if (global_) global_->collectSampleRefs(out);
+}
+
 void Engine::setRingOut(bool on) {
     ringOut_ = on;
     if (global_) global_->setRingOut(on);

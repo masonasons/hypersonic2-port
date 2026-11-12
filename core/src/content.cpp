@@ -43,4 +43,21 @@ SampleBank* Content::sampleBank(int number) {
     return slot.get();
 }
 
+size_t Content::decodedSampleBytes() {
+    std::lock_guard<std::mutex> lk(mu_);
+    size_t n = 0;
+    for (const auto& [k, sb] : sampleBanks_)
+        if (sb) n += sb->decodedBytes();
+    return n;
+}
+
+size_t Content::releaseSamples(const std::function<bool(const SampleBank*, uint32_t, const SampleData*)>& keep,
+                               std::vector<std::unique_ptr<SampleData>>& out) {
+    std::lock_guard<std::mutex> lk(mu_);
+    size_t n = 0;
+    for (const auto& [k, sb] : sampleBanks_)
+        if (sb) n += sb->release([&](uint32_t i, const SampleData* sd) { return keep(sb.get(), i, sd); }, out);
+    return n;
+}
+
 }  // namespace hs2
