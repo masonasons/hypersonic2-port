@@ -8,8 +8,15 @@
 
 Formats: core/src/bank.cpp (MilanBank::open), core/src/patch.cpp (Patch::parse), PatchLibrary.cpp (EffectPreset).
 
-Usage: python3 -I schwung/tests/make_test_content.py <out folder>
+With --big <folder> it also writes a second content folder for the sample memory test:
+
+  Samples/004 Test Pianos    a sample bank (kind 2): 6 instruments x 8 zones, each zone its own 1 s mono 16-bit
+                             sample (decoded: about 1.4 MB per instrument)
+  Patches/000 Big Pianos     6 patches, "Big Piano 1".."Big Piano 6", each one Sample element on one instrument
+
+Usage: python3 -I schwung/tests/make_test_content.py <out folder> [--big <folder>]
 """
+import math
 import os
 import struct
 import sys
@@ -74,6 +81,85 @@ def milan_bank(entries, letter=b'P', kind=1):
     return bytes(out)
 
 
+BIG_INSTRUMENTS, BIG_ZONES, BIG_FRAMES = 6, 8, 44100
+
+
+def sample_bank(instruments, samples):
+    """instruments: [(name, zones)] with zones [(keyLo, keyHi, root, sample index 1..)]; samples: [int16 list].
+    Milan bank kind 2 ('S'), version 12; secondary record 0 is the sentinel."""
+    kdir = 0x58
+    n = len(instruments)
+    sec = [b''] + [struct.pack('<IIIBBBB', 0, len(x), 44100, 1, 2, 0, 0) + struct.pack(f'<{len(x)}h', *x)
+                   for x in samples]
+    dir_size = 0x10 + n * 0x30
+    sec_off = dir_size
+    names = bytearray()
+    name_offs = []
+    for nm, _ in instruments:
+        name_offs.append(len(names))
+        b = nm.encode('latin1')
+        names += bytes([len(b)]) + b
+    names_off = sec_off + len(sec) * 0x20
+    data_start = (kdir + names_off + len(names) + 15) & ~15
+    out = bytearray(data_start)
+    out[0:3] = b'Mil'
+    out[16] = ord('S')
+    out[0x29] = ord('W')
+    struct.pack_into('<HH', out, 0x30, 2, 12)
+    struct.pack_into('<IIII', out, kdir, n, names_off, sec_off, len(sec))
+    blobs = bytearray()
+
+    def add(blob):
+        off = data_start + len(blobs)
+        blobs.extend(blob)
+        while len(blobs) % 16:
+            blobs.append(0)
+        return off
+
+    for i, (nm, zones) in enumerate(instruments):
+        z = bytearray()
+        for key_lo, key_hi, root, idx in zones:
+            r = bytearray(0x40)
+            r[0:4] = bytes([1, key_lo, 127, key_hi])
+            struct.pack_into('<II', r, 4, root, idx)
+            struct.pack_into('<II', r, 0x10, BIG_FRAMES, 0)
+            struct.pack_into('<ffff', r, 0x18, 0.0, 0.0, 0.0, 1.0)
+            z += r
+        e = kdir + 0x10 + i * 0x30
+        struct.pack_into('<II', out, e, name_offs[i], name_offs[i])
+        struct.pack_into('<III', out, e + 0x0c, 1, add(bytes(z)), len(z))
+    for k, blob in enumerate(sec):
+        if blob:
+            struct.pack_into('<III', out, kdir + sec_off + k * 0x20 + 4, 1, add(blob), len(blob))
+    out[kdir + names_off:kdir + names_off + len(names)] = names
+    return bytes(out + blobs)
+
+
+def write_big(out):
+    os.makedirs(os.path.join(out, 'Patches'), exist_ok=True)
+    os.makedirs(os.path.join(out, 'Samples'), exist_ok=True)
+    instruments, samples = [], []
+    for i in range(BIG_INSTRUMENTS):
+        zones = []
+        for k in range(BIG_ZONES):
+            root = 16 * k + 8
+            hz = 440.0 * 2 ** ((root - 69) / 12)
+            samples.append([int(12000 * math.sin(2 * math.pi * hz * t / 44100) * (1 - t / BIG_FRAMES))
+                            for t in range(BIG_FRAMES)])
+            zones.append((16 * k, 16 * k + 15, root, len(samples)))
+        instruments.append((f'Piano {i + 1}', zones))
+    with open(os.path.join(out, 'Samples', '004 Test Pianos'), 'wb') as f:
+        f.write(sample_bank(instruments, samples))
+    patches = []
+    for i in range(BIG_INSTRUMENTS):
+        el = voice_element(2, {0x12: 4.5 / 128.9, 0x13: (i + 0.5) / 128.9,  # bank 4, instrument i
+                               0x81: 0.5})  # amp env Fade Up/Down: none (0 fades the sustain out at once)
+        name = f'Big Piano {i + 1}'
+        patches.append((name, patch_blob(name, [''] * 6, [('Piano', el)], common_patch_params())))
+    with open(os.path.join(out, 'Patches', '000 Big Pianos'), 'wb') as f:
+        f.write(milan_bank(patches))
+
+
 def common_patch_params():
     return {
         0x31: 0.0, 0x32: 1.0, 0x33: 0.0, 0x34: 0.0, 0x35: 1.0, 0x36: 0.0,  # key / velocity ranges
@@ -120,6 +206,9 @@ def main():
     with open(os.path.join(out, 'Effects', 'Delay', 'Test Delay.fxp'), 'wb') as f:
         f.write(bytes(fxp))
     print(f'wrote test content to {out}')
+    if len(sys.argv) > 3 and sys.argv[2] == '--big':
+        write_big(sys.argv[3])
+        print(f'wrote sample memory test content to {sys.argv[3]}')
 
 
 if __name__ == '__main__':

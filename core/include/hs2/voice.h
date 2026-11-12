@@ -76,6 +76,8 @@ class Voice {
 public:
     virtual ~Voice() = default;
     bool active() const { return active_; }
+    // The decoded sample this voice last played (sample voices; kept after the voice ends until it plays again).
+    const SampleData* lastSample() const { return s_; }
     int note() const { return note_; }
 
     void start(const ElementParams& e, const EngineConsts& c, const VoiceStart& vs, const PatchInputs& in,
