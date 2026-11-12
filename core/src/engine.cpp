@@ -100,6 +100,23 @@ std::unique_ptr<PatchPlayer> Engine::newPart() {
     return p;
 }
 
+int Engine::partVoices(int p) const {
+    if (p < 0 || p >= kParts) return 0;
+    const Slot& s = slots_[size_t(p)];
+    int n = s.cur ? s.cur->activeVoices() : 0;
+    for (const auto& o : s.old)
+        if (o) n += o->activeVoices();
+    for (const auto& f : s.fading)
+        if (f.p) n += f.p->activeVoices();
+    return n;
+}
+
+int Engine::totalVoices() const {
+    int n = 0;
+    for (int p = 0; p < kParts; ++p) n += partVoices(p);
+    return n;
+}
+
 void Engine::collectSampleRefs(PatchPlayer::SampleRefs& out) const {
     for (const auto& s : slots_) {
         if (s.cur) s.cur->collectSampleRefs(out);

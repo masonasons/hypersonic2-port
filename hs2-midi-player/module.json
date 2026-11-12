@@ -1,0 +1,38 @@
+{
+  "id": "hs2-midi-player",
+  "name": "HS2 MIDI Player",
+  "abbrev": "HS2MP",
+  "version": "0.1.0",
+  "description": "Plays MIDI files and USB MIDI on all 16 parts of the Hypersonic 2 engine, with General MIDI program changes. Needs your own Hypersonic 2 content folder.",
+  "author": "HS2 Port",
+  "license": "Personal use",
+  "ui": "ui.js",
+  "dsp": "dsp.so",
+  "api_version": 2,
+  "component_type": "tool",
+  "tool_config": {
+    "interactive": true,
+    "skip_file_browser": true
+  },
+  "assets": {
+    "path": "content",
+    "label": "Hypersonic 2 Content",
+    "allowFolders": true,
+    "description": "Only needed when the Hypersonic 2 sound generator is not installed with its content: this tool uses that module's content folder.",
+    "hint": "Copy the contents of your 'Hypersonic 2 Content' folder here, so that content/Patches and content/Samples exist. Nothing from Steinberg ships with this module.",
+    "folders": [
+      { "path": "Patches", "label": "Patch banks", "required": false },
+      { "path": "Samples", "label": "Sample banks", "required": false },
+      { "path": "Wavetables", "label": "Wavetables", "required": false },
+      { "path": "Drawbars", "label": "Drawbars", "required": false },
+      { "path": "Effects", "label": "Effect presets", "required": false },
+      { "path": "Tunings", "label": "Microtunings", "required": false }
+    ]
+  },
+  "capabilities": {
+    "audio_out": true,
+    "midi_in": true,
+    "aftertouch": true,
+    "suspend_keeps_js": true
+  }
+}

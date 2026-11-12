@@ -1,0 +1,94 @@
+{
+  "title": "HS2 MIDI Player",
+  "children": [
+    {
+      "title": "Overview",
+      "lines": [
+        "Plays MIDI files on",
+        "the Hypersonic 2",
+        "engine's 16 parts:",
+        "part N = channel N.",
+        "Program changes and",
+        "bank select load",
+        "patches (GM by",
+        "default). MIDI from",
+        "a USB device plays",
+        "the same parts."
+      ]
+    },
+    {
+      "title": "Files",
+      "lines": [
+        "Put .mid files in",
+        "UserLibrary (any",
+        "folder). Open them",
+        "with Menu > Open",
+        "MIDI File.",
+        "",
+        "Uses the Hypersonic",
+        "2 module's content,",
+        "or its own content/",
+        "folder."
+      ]
+    },
+    {
+      "title": "Controls",
+      "children": [
+        {
+          "title": "Player",
+          "lines": [
+            "Play: play / stop",
+            "Shift+Play: to start",
+            "Loop: loop on / off",
+            "Jog: bar back / on",
+            "Shift+Jog: 8 bars",
+            "Click: menu",
+            "Shift+Click: status",
+            "Back: hide (keeps",
+            " playing)",
+            "Shift+Back: exit"
+          ]
+        },
+        {
+          "title": "Pads and Knobs",
+          "lines": [
+            "Bottom two pad rows:",
+            " parts 1-16, press",
+            " = mute, Shift =",
+            " solo. Lit = used,",
+            " bright = playing.",
+            "Knobs 1-8: level of",
+            " parts 1-8, Shift:",
+            " parts 9-16.",
+            "Touch: speak value"
+          ]
+        },
+        {
+          "title": "Menus",
+          "lines": [
+            "Jog: move",
+            "Click: open, edit,",
+            " or run",
+            "Jog while editing:",
+            " change",
+            "Menu: up a level"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Follow Move",
+      "lines": [
+        "Tempo > Follow Move:",
+        "the file plays at",
+        "Move's tempo and",
+        "starts and stops",
+        "with Move's",
+        "transport, on Move's",
+        "bar lines. Tempo",
+        "changes in the file",
+        "are ignored then."
+      ]
+    }
+  ]
+}
