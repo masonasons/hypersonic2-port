@@ -40,7 +40,8 @@ int main(int argc, char** argv) {
     host.get_bpm = bpm;
     host.get_beat_position = beatPos;
     plugin_api_v2_t* api = init(&host);
-    void* inst = api->create_instance("/tmp", nullptr);
+    const char* moduleDir = std::getenv("HS2_MODULE_DIR");  // HS2 MIDI Player keeps its settings there
+    void* inst = api->create_instance(moduleDir && *moduleDir ? moduleDir : "/tmp", nullptr);
     std::atomic<bool> run{true};
     std::thread audio([&] {
         int16_t buf[256];

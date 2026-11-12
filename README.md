@@ -10,6 +10,8 @@ Nothing from Steinberg is in this repository: the plugin reads an existing Hyper
   Checked sample for sample against the original DLL running in an emulator (`tools/emu/`).
 - `plugin/`: the JUCE plugin (VST3, AU, Standalone). Building, keyboard use and tests: `plugin/README.md`.
 - `schwung/`: the engine as a Schwung module for Ableton Move (four parts, screen reader). See `schwung/README.md`.
+- `hs2-midi-player/`: HS2 MIDI Player, a Schwung tool that plays MIDI files and USB MIDI on all 16 parts.
+  See `hs2-midi-player/README.md`.
 - `tools/cli/`: `hs2render` (offline renders with the engine) and test tools.
 - `tools/emu/`, `tools/formats/`: the emulator oracles and file format readers (Python; need the original DLL).
 - `docs/NOTES.md`: everything found so far, open items included.
