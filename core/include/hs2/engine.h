@@ -109,6 +109,9 @@ public:
     // PatchPlayer::collectSampleRefs for every player: the current, pending, still sounding and fading parts and the
     // global effects part. Call it where render cannot run (the host's render lock).
     void collectSampleRefs(PatchPlayer::SampleRefs& out) const;
+    // Voices playing in part p (its current, pending, replaced and fading players) and in every part.
+    int partVoices(int p) const;
+    int totalVoices() const;
     PatchPlayer& part(int p) { return *slots_[size_t(p)].latest(); }
     PatchPlayer& globalPart() { return *global_; }
     // The effect type in global send FX slot k (0..3): effects.h numbering, 128 = none.

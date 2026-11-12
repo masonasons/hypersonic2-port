@@ -125,6 +125,9 @@ public:
     };
     void collectSampleRefs(SampleRefs& out) const;
 
+    // Voices playing now (list entries, part+0xe08; not in the original's API).
+    int activeVoices() const { return count_; }
+
     // Part getParam FUN_1000cea0: elem 0 = patch parameter, 1..0x40 element record elem-1, 0x41..0x44 send FX slot.
     float getParam(int elem, int idx) const;
     const Patch& patch() const { return patch_; }
