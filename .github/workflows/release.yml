@@ -1,7 +1,8 @@
 name: Release
 
 # Builds the plugin for Mac (VST3, AU, Standalone; universal, Developer ID signed and notarized) and Windows (VST3,
-# Standalone) with tools/dist/, and the Schwung module for Ableton Move with schwung/build.sh. A tag v<version>
+# Standalone) with tools/dist/, and the Schwung module and HS2 MIDI Player for Ableton Move with schwung/build.sh and
+# hs2-midi-player/build.sh. A tag v<version>
 # (for example v0.3.2) publishes them all as a GitHub release; the tag must match VERSION in plugin/CMakeLists.txt.
 # Run by hand (Actions, Release, Run workflow) it builds the packages as workflow artifacts without releasing anything.
 #
@@ -194,8 +195,29 @@ jobs:
           path: dist/hypersonic2-module.tar.gz
           if-no-files-found: error
 
+  # HS2 MIDI Player, a Schwung tool for Ableton Move: its desktop tests (the UI test is skipped without Schwung's
+  # shared UI libraries), then hs2-midi-player/build.sh, which cross-compiles in the same Docker image.
+  midi-player:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Desktop tests
+        run: hs2-midi-player/tests/run_tests.sh
+
+      - name: Build the module
+        run: hs2-midi-player/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HS2-Port-${{ needs.version.outputs.version }}-MIDI-Player
+          path: dist/hs2-midi-player-module.tar.gz
+          if-no-files-found: error
+
   release:
-    needs: [version, mac, windows, windows7, schwung]
+    needs: [version, mac, windows, windows7, schwung, midi-player]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
@@ -217,6 +239,7 @@ jobs:
           - **Windows 10 and 11:** HS2-Port-$VERSION-Windows.zip: VST3 and Standalone (64-bit).
           - **Windows 7, 8 and 8.1:** HS2-Port-$VERSION-Windows7.zip: the same plugin built for older Windows (64-bit).
           - **Ableton Move:** hypersonic2-module.tar.gz: the Schwung module (four parts, screen reader); see schwung/README.md in the source.
+          - **Ableton Move:** hs2-midi-player-module.tar.gz: HS2 MIDI Player, a Schwung tool playing MIDI files on 16 parts; see hs2-midi-player/README.md in the source.
 
           Each zip has an Install.txt. The plugin needs your own Hypersonic 2 content folder.
           EOF

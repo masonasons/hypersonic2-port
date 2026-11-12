@@ -3,7 +3,8 @@
 #
 # Uses an aarch64-linux-gnu-g++ cross compiler when one is on PATH (Homebrew: brew install
 # messense/macos-cross-toolchains/aarch64-unknown-linux-gnu), else Docker (schwung/Dockerfile, shared with the
-# Hypersonic 2 sound generator). The C++ runtime is linked statically, so the module needs only the device's libc.
+# Hypersonic 2 sound generator). libstdc++ is linked statically, so the module needs only the device's libc (glibc
+# 2.34 at most) and libgcc_s.
 #
 #   hs2-midi-player/build.sh            build
 #   hs2-midi-player/build.sh --native   build a desktop shared library for the tests (tests/run_tests.sh)
@@ -69,14 +70,20 @@ if [ "$NATIVE" = 1 ]; then
   exit 0
 fi
 
-$CXX -shared -o "$LIB" $OBJS -static-libstdc++ -static-libgcc -pthread -lm -Wl,--gc-sections -Wl,--as-needed -s
+# As schwung/build.sh: libstdc++ is linked in; libgcc stays the system's libgcc_s (present wherever glibc is): a static
+# libgcc brings in the build system's _dl_find_object (glibc 2.35).
+$CXX -shared -o "$LIB" $OBJS -static-libstdc++ -pthread -lm -Wl,--gc-sections -Wl,--as-needed -s
 
+# The device's glibc: Move runs Schwung modules built against glibc 2.17..2.34 (the bundled modules need up to 2.34).
 OBJDUMP="${CROSS_PREFIX:-aarch64-linux-gnu-}objdump"
 if command -v "$OBJDUMP" >/dev/null 2>&1; then
   NEEDED=$("$OBJDUMP" -p "$LIB" | awk '/NEEDED/ {print $2}' | tr '\n' ' ')
   MAXGLIBC=$("$OBJDUMP" -T "$LIB" | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -1)
   echo "dsp.so needs: $NEEDED(newest symbol version $MAXGLIBC)"
   case "$NEEDED" in *libstdc++*) echo "ERROR: libstdc++ is linked dynamically" >&2; exit 1 ;; esac
+  if [ "$(printf '%s\nGLIBC_2.34\n' "$MAXGLIBC" | sort -V | tail -1)" != GLIBC_2.34 ]; then
+    echo "ERROR: dsp.so needs $MAXGLIBC; Move runs modules that need glibc 2.34 at most" >&2; exit 1
+  fi
 fi
 
 cp hs2-midi-player/module.json hs2-midi-player/ui.js hs2-midi-player/help.json "$OUT/"
