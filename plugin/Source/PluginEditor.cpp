@@ -916,6 +916,15 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
         proc_.allNotesOff();
         if (view_ == View::instrument) status_.setText("All notes off.", juce::dontSendNotification);
     };
+    settings_.addAndMakeVisible(resetPartLinks_);
+    setControlHelp(resetPartLinks_, "Turns off Link for all parts so each plays its own MIDI channel. "
+                                   "Patches, mixer and audio settings stay unchanged.");
+    resetPartLinks_.onClick = [this] {
+        proc_.resetPartLinks();
+        showView(View::instrument);
+        status_.setText("Part links reset. Each part plays its own MIDI channel.", juce::dontSendNotification);
+        status_.grabKeyboardFocus();
+    };
     settings_.addAndMakeVisible(rescan_);
     rescan_.setExplicitFocusOrder(9);
     setControlHelp(rescan_, "Reads the content folder's patch banks, combis, tunings and effect presets again, for "
@@ -998,6 +1007,7 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
     allNotesOff_.setExplicitFocusOrder(14);
     rescan_.setExplicitFocusOrder(15);
     updates_.setExplicitFocusOrder(16);
+    resetPartLinks_.setExplicitFocusOrder(17);
     generalTab_.setRadioGroupId(1);
     audioTab_.setRadioGroupId(1);
     generalTab_.setClickingTogglesState(true);
@@ -1032,7 +1042,7 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
              {&prevButton_, "Ctrl+Page Up"}, {&nextButton_, "Ctrl+Page Down"}, {&info_, "Ctrl+I"},
              {&preferences_, "Ctrl+,"}, {&help_, "F1"}, {&keyboard_, "Ctrl+K"}, {&hide_, "Ctrl+H"},
              {&updates_, "Shift+F1"},
-             {&allNotesOff_, "F9"}, {&back_, "Escape"}, {&closeHelp_, "Escape"}})
+             {&allNotesOff_, "F9"}, {&resetPartLinks_, "Ctrl+R"}, {&back_, "Escape"}, {&closeHelp_, "Escape"}})
         setControlAccelerator(*control, shortcut);
 
     // ---- Status
@@ -1263,7 +1273,10 @@ void HS2Editor::resized() {
         row6.removeFromLeft(6);
         rescan_.setBounds(row6.removeFromLeft(200));
         c.removeFromTop(8);
-        updates_.setBounds(c.removeFromTop(30).withTrimmedLeft(120).removeFromLeft(200));
+        auto row7 = c.removeFromTop(30).withTrimmedLeft(120);
+        updates_.setBounds(row7.removeFromLeft(200));
+        row7.removeFromLeft(6);
+        resetPartLinks_.setBounds(row7.removeFromLeft(170));
     }
     status_.setBounds(statusSection_.content());
 }
@@ -1939,6 +1952,10 @@ bool HS2Editor::keyPressed(const juce::KeyPress& key) {
         allNotesOff_.onClick();
         return true;
     }
+    if (cmdLetter('r') && view_ != View::help) {
+        resetPartLinks_.onClick();
+        return true;
+    }
     if (view_ != View::instrument) {
         if (view_ != View::help && audioTab_.isVisible() &&
             (generalTab_.hasKeyboardFocus(false) || audioTab_.hasKeyboardFocus(false)) &&
@@ -2210,6 +2227,7 @@ void HS2Editor::showKeyboardHelp(bool contextual) {
         "Patch parameters, Elements and Patch send effects edit the selected part's patch: choose the element and "
         "group at the top of the page. Edits are saved with the project and end when another patch loads.\n"
         "Ctrl+comma: Preferences. F9: All Notes Off. Ctrl+Q: quit the standalone.\n"
+        "Ctrl+R: Reset part links without changing the loaded sounds.\n"
         "Ctrl+K: Musical Keyboard in the standalone. Z and X change octave; C and V change velocity.\n"
         "F1: help for the focused control. Shift+F1: check for updates in the standalone.\n"
 #if JUCE_WINDOWS

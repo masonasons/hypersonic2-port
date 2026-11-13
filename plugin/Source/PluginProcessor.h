@@ -262,6 +262,7 @@ public:
     void setPreloadSamples(bool on) { preload_ = on; }
     // Stops every note on every part (sustain off, all sound off, all notes off on the 16 channels).
     void allNotesOff() { panic_ = true; }
+    void resetPartLinks();
     // Reads the content folder's patch banks, tunings and effect presets again.
     void rescanContent();
 
@@ -405,6 +406,7 @@ private:
     std::atomic<int> tuneSemis_{0}, tuneCents_{0};
     std::atomic<bool> preload_{false};
     std::atomic<bool> panic_{false};
+    std::atomic<bool> resetLinksPending_{false};
     struct SetupValues {
         float hype = 0.33f, velSens = 0.5f, touchSens = 0.5f;
         int semis = 0, cents = 0;

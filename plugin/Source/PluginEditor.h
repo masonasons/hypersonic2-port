@@ -312,6 +312,7 @@ private:
     };
     PresetFolderRow vst3Folder_, nksFolder_;
     juce::TextButton allNotesOff_{"All notes off"};
+    juce::TextButton resetPartLinks_{"Reset part links"};
     juce::TextButton rescan_{"Rescan content folder"};
     juce::TextButton help_{"Keyboard help"};
 

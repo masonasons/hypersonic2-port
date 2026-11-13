@@ -660,6 +660,11 @@ void HS2Processor::rescanContent() {
     loader_->notify();
 }
 
+void HS2Processor::resetPartLinks() {
+    resetLinksPending_ = true;
+    setStatus("Part links reset. Each part plays its own MIDI channel.");
+}
+
 PresetExportOptions HS2Processor::presetInstallOptions() const {
     PresetExportOptions o;
     o.contentRoot = settings_->contentFolder();
@@ -1286,11 +1291,13 @@ void HS2Processor::applySetup(hs2::Engine& e, const SetupValues& from, const Set
 
 std::array<float, kNumExposed> HS2Processor::currentValues(std::array<bool, kNumExposed>* valid) const {
     std::array<float, kNumExposed> v{};
+    const bool resetLinks = resetLinksPending_.load();
     for (int i = 0; i < kNumExposed; ++i) {
         const float h = exposed_[size_t(i)]->getValue();
         // A host change the audio thread has not applied yet counts; otherwise the engine's value.
         const bool hostPending = h != hostSeen_[size_t(i)].load() && h != echo_[size_t(i)].load();
-        v[size_t(i)] = hostPending ? h : engineVal_[size_t(i)].load();
+        v[size_t(i)] = resetLinks && i >= kLinkBase && i < kGfxBase ? 0.f
+            : hostPending ? h : engineVal_[size_t(i)].load();
         if (valid != nullptr) (*valid)[size_t(i)] = !std::isnan(v[size_t(i)]);
     }
     return v;
@@ -1419,6 +1426,13 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
             }
 
     syncParameters(eng);
+
+    if (resetLinksPending_.exchange(false)) {
+        // Apply the reset after queued loads and automation, before routing this block's notes.
+        for (int part = 1; part < kNumParts; ++part)
+            eng.setParameter(engineIndex(linkIndex(part)), 0.f);
+        syncParameters(eng);
+    }
 
     // MIDI: every channel goes to the engine, which routes it to its part (part N = channel N) and handles bank
     // select and program changes itself (they come back as load requests below).
