@@ -21,3 +21,9 @@ docs/engine/element_setter.c
 /dist/
 # macOS Finder metadata
 .DS_Store
+
+# Built binaries (tools/hs2capture, etc.)
+*.exe
+*.obj
+*.o
+hs2capture-out/

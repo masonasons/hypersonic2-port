@@ -1153,3 +1153,43 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   and 80/2 match the old ones in every window above -100 dB (1/0 differs only below -100 dB); 003/40 and 003/41
   match note for note (difference -130 dB or lower) without the buzz; compare_with_hs2render.py and edit_checks.py
   all OK.
+
+
+- **The copy-protected patches: captured out of the licensed original (2026-11-12).** The 63 stored-encrypted
+  patches now load in the port, the plugin, hs2render and the Schwung module, from captures taken by
+  **tools/hs2capture** (see its README; it lives in this repo now, with vst2abi.h and protected_patches.tsv).
+  - **The chunk interface encrypts both ways.** getState hands out its state through the Syncrosoft encode
+    (FUN_100566d0 / FUN_10056910 at the end of getChunk, both the bank path and the program path): a chunk is
+    "SyncrosoftContentHeader" + a licence blob (skip 8 + u32@27) + ciphertext, and setChunk decodes the same
+    wrapper (FUN_10083a50 loops over it and calls the same two functions). The licence blob before a PLAIN
+    payload is skipped by the reader (tunings, phrases); the patch entries store "SyncrosoftContent..." +
+    ciphertext. A captured .fxp program chunk is byte-identical to the stored entry (getState keeps the stored
+    wrapped bytes for a content-loaded patch). Round-tripping a wrapped chunk through setChunk loads the plain
+    patch, but getState then encrypts again - the plain patch never crosses the host interface.
+  - **The capture.** loadPatchFromLibrary (decomp @70011) frees the decrypted patch buffer with operator delete
+    right after the load; the tool redirects that one import-table pointer (no code modification, no exceptions)
+    and keeps freed buffers that are the plain "StSS" blob of the patch being loaded (matched by the blob's own
+    name field). The blob is self-describing: its extent = 0x620 + (elements + send-FX records) * 0x420 + the
+    trailer (marker; marker 2: CC map + phrase slots), as Patch::parse / Arp::patchTrailer read it. The capture
+    happens after FUN_10016f70, so the loader's in-place fixups (Note-on Click, patch 0x18/0x54, the analog
+    resets) have been applied - harmless: the protected patches are new (version >= 0xBEC874C, measured
+    200,050,508), no fixup applies, and the fixups are idempotent anyway. Each capture is verified by feeding it
+    back through setChunk (the plugin reloads it), and by the original's own range check (patch parameters
+    outside 0..1: none).
+  - **The original's loader wedge.** After a handful of protected loads the original stops loading anything (the
+    state stops changing; a wedged GUI thread blocks the message pump forever). It recovers in a fresh process.
+    capture_all.ps1 loops hs2capture (it skips patches already captured, stops after --max-fails consecutive
+    failures, and a watchdog exits the process when the plugin stops responding) until the list is done. Two
+    asides for the record: a 2026 MSVC build of the HOST is incompatible with this 2005 plugin (heap corruption
+    with no hooks at all, hangs in the licence check; MinGW builds work - build with mingw32 g++ -static), and
+    the plugin usually crashes at close after protected loads (all data is flushed; the wedge is the likely
+    cause, it also ends the process cleanly often enough).
+  - **Where the captures live.** `<content>\Captures\patches\NNN-PPP name.stss` (also `<content>\Captures`
+    without the subfolder). The port scans that automatically: PatchLibrary::scan marks those patches
+    PatchRef::captured and keeps their paths; the plugin's load (prepareCommand), preset export, hs2render
+    (parseEntry, so --bank/--patch, --part and load: all work) and the Schwung module read the capture for a
+    protected entry, and the patch list shows "(captured)" instead of "(copy-protected, cannot load)". No
+    setting anywhere: the folder travels with the content, which the patches need anyway (their sounds are in
+    the content's sample banks). The captures are personal-use data like the content: never bundled or committed.
+    Checked: compare_with_hs2render.py now includes 8/30, 17/25 and 33/42 (program change and state restore,
+    bit-identical); all 63 captured patches parse and render through the port without warnings.

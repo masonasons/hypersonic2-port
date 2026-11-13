@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <map>
 #include <memory>
@@ -703,7 +704,7 @@ void Instance::scan() {
         BankRow row{b.number, ascii(b.name), int(browse_.size()), 0};
         for (int pi : b.patches) {
             const auto& p = lib_->patches[size_t(pi)];
-            if (p.copyProtected) continue;  // Syncrosoft patches cannot be loaded
+            if (p.copyProtected && !p.captured) continue;  // no capture: cannot be loaded
             std::string n = ascii(hs2port::displayName(p.name));
             if (n.empty()) n = "Patch " + std::to_string(p.index + 1);
             browse_.push_back({p.bank, p.index, n, int(banks_.size())});
@@ -801,9 +802,19 @@ void Instance::runLoad(int part, LoadJob job) {
         if (index < 0 || size_t(index) >= mb->entries.size() || mb->entries[size_t(index)].slot1.size == 0)
             throw std::runtime_error("patch " + std::to_string(index + 1) + " does not exist in this bank");
         const auto data = mb->read(mb->entries[size_t(index)].slot1);
-        if (hs2port::isCopyProtectedPatch(data.data(), data.size()))
-            throw std::runtime_error("it is copy protected");
-        auto patch = std::make_shared<hs2::Patch>(hs2::Patch::parse(data));
+        // A copy-protected patch: its capture, the plain patch hs2capture (tools/hs2capture, --mode patch)
+        // took out of the licensed original, which PatchLibrary::scan found in <content>/Captures.
+        std::vector<uint8_t> blob;
+        if (hs2port::isCopyProtectedPatch(data.data(), data.size())) {
+            const auto* cap = L->capturePath(job.bank, index);
+            if (cap == nullptr) throw std::runtime_error("it is copy protected and has no capture (hs2capture)");
+            std::ifstream f(*cap, std::ios::binary);
+            if (!f) throw std::runtime_error("its capture file cannot be read");
+            blob.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+        } else {
+            blob.assign(data.begin(), data.end());
+        }
+        auto patch = std::make_shared<hs2::Patch>(hs2::Patch::parse(blob));
         // A throwaway player reads the sample banks / wavetables into the shared caches, so the engine's own load on
         // the audio thread finds them there (as the plugin's loader does).
         auto tmp = std::make_unique<hs2::PatchPlayer>(*C, sr);
@@ -2072,7 +2083,9 @@ void programChange(Instance& I, int p, int prog) {
     if (!I.lib) return;
     const int bank = I.sawLsb[size_t(p)] ? I.bankMsb[size_t(p)] * 128 + I.bankLsb[size_t(p)] : I.bankMsb[size_t(p)];
     const int li = I.lib->find(bank, prog);
-    if (li < 0 || I.lib->patches[size_t(li)].copyProtected || I.lib->patches[size_t(li)].combi) return;
+    if (li < 0) return;
+    const auto& ref = I.lib->patches[size_t(li)];  // a reference, no copy: this runs on the audio thread
+    if ((ref.copyProtected && !ref.captured) || ref.combi) return;
     for (size_t i = 0; i < I.browse.size(); ++i)
         if (I.browse[i].bank == bank && I.browse[i].index == prog) I.browseTarget[size_t(p)] = int(i);
     LoadJob j;

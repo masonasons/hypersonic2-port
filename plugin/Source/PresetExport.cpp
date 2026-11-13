@@ -1,5 +1,6 @@
 #include "PresetExport.h"
 
+#include <fstream>
 #include <map>
 #include <memory>
 #include <set>
@@ -592,7 +593,7 @@ PresetExportResult exportPresets(const PatchLibrary& library, const PresetExport
         }
         if (progress && (i % 50 == 0)) progress(i, total);
         const auto& ref = library.patches[size_t(i)];
-        if (ref.copyProtected) {
+        if (ref.copyProtected && !ref.captured) {
             ++result.skippedProtected;
             continue;
         }
@@ -606,7 +607,18 @@ PresetExportResult exportPresets(const PatchLibrary& library, const PresetExport
                         options.contentRoot.getChildFile("Patches").getChildFile(latin1(bank->name))
                             .getFullPathName().toWideCharPointer()));
                 const auto& e = mb->entries.at(size_t(ref.index));
-                patch = std::make_unique<hs2::Patch>(hs2::Patch::parse(mb->read(e.slot1)));
+                // A copy-protected patch: load its capture instead (the plain patch taken out of the licensed
+                // original by hs2capture; PatchLibrary::scan found it in <content>/Captures).
+                if (ref.captured) {
+                    const auto* cap = library.capturePath(ref.bank, ref.index);
+                    if (cap == nullptr) throw std::runtime_error("its capture file is missing");
+                    std::ifstream f(*cap, std::ios::binary);
+                    const std::vector<uint8_t> blob((std::istreambuf_iterator<char>(f)),
+                                                    std::istreambuf_iterator<char>());
+                    patch = std::make_unique<hs2::Patch>(hs2::Patch::parse(blob));
+                } else {
+                    patch = std::make_unique<hs2::Patch>(hs2::Patch::parse(mb->read(e.slot1)));
+                }
             } catch (const std::exception& ex) {
                 result.errors.add(latin1(ref.name) + ": " + ex.what());
                 continue;

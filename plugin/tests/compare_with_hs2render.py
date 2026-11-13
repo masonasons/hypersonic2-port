@@ -68,7 +68,10 @@ def f(name):
 
 NOTES = '0:1.5:60:100,0.5:1:64:90,1.0:1:67:80'
 # 1. Patches into part 1 by MIDI (a new instance holds the default patch 84/0 in part 1), then the saved state restored.
-for b, p in [(31, 0), (9, 0), (15, 23), (83, 1), (0, 3), (13, 4), (10, 10), (37, 91), (82, 0), (82, 14), (3, 65)]:
+# The last three are copy-protected patches (the "New" HS-2 additions): the plugin and hs2render both load their
+# captures from <content>\Captures\patches, so these test that path (program change, state restore).
+for b, p in [(31, 0), (9, 0), (15, 23), (83, 1), (0, 3), (13, 4), (10, 10), (37, 91), (82, 0), (82, 14), (3, 65),
+             (8, 30), (17, 25), (33, 42)]:
     tag = f'{b}_{p}'
     run([REN, '--part', '1:84:0', '--load-bank', '--skip', '32', '--events', f'@32:load:1:{b}:{p}', '--notes', NOTES]
         + RO + COMMON + ['--host', '-1:120:0', '--block', '32', '--out', f(f'ref_pc_{tag}.wav')])

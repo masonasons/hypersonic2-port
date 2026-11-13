@@ -1,6 +1,8 @@
 // hs2render: render one Hypersonic 2 patch with the port's engine, using the same test sequence as
 // tools/reaper/hs2_render.lua so results line up with reference renders (B###_P###.wav).
 //   hs2render --bank 7 --patch 0 [--content "C:\Hypersonic 2 Content"] [--sr 44100] [--lead 4] [--out file.wav]
+// A copy-protected patch (the 63 "New" factory additions) loads its capture from <content>\Captures, as the
+// plugin does. --patch-file "file.stss" loads that file as the patch instead.
 // Debug options for comparisons with the emulated original (tools/emu/part_oracle.py):
 //   --dry               patch send levels (0x3f..0x42) set to 0 and the master tone enhancer undone, so the output is
 //                       the part's main out (dry bus * patch gain * master), like part_oracle's default output
@@ -45,6 +47,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -130,12 +133,43 @@ struct EngineArgs {
     std::vector<Note> seq;
 };
 
+// A copy-protected patch: its stored entry is Syncrosoft-encrypted. Its capture (the plain patch taken out of
+// the licensed original by hs2capture, --mode patch) is in <content>/Captures[/patches] as "NNN-PPP name.stss",
+// the same place the plugin reads (PatchLibrary::scan); nullptr when there is none.
+std::filesystem::path capturePath(const hs2::Content& c, int bank, int prog) {
+    char prefix[16];
+    std::snprintf(prefix, sizeof prefix, "%03d-%03d ", bank, prog);
+    std::error_code ec;
+    for (const auto& dir : {c.root() / "Captures" / "patches", c.root() / "Captures"}) {
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            const auto nm = e.path().filename().string();
+            if (e.is_regular_file() && e.path().extension() == ".stss" && nm.rfind(prefix, 0) == 0) return e.path();
+        }
+    }
+    return {};
+}
+
+hs2::Patch parseEntry(hs2::Content& c, const hs2::MilanBank& pb, int bank, int prog) {
+    const auto data = pb.read(pb.entries[size_t(prog)].slot1);
+    static const char kSyncro[] = "Syncrosoft";
+    if (data.size() >= sizeof kSyncro - 1 &&
+        std::memcmp(data.data(), kSyncro, sizeof kSyncro - 1) == 0) {  // copy-protected: its capture
+        const auto cap = capturePath(c, bank, prog);
+        if (cap.empty()) throw std::runtime_error("patch " + std::to_string(bank) + "/" + std::to_string(prog) +
+                                                  " is copy-protected and has no capture (hs2capture --mode patch)");
+        std::ifstream f(cap, std::ios::binary);
+        const std::vector<uint8_t> blob((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        return hs2::Patch::parse(blob);
+    }
+    return hs2::Patch::parse(data);
+}
+
 hs2::Patch loadBankPatch(hs2::Content& c, int bank, int prog) {
     auto path = c.patchBankPath(bank);
     if (path.empty()) throw std::runtime_error("no patch bank " + std::to_string(bank));
     auto pb = hs2::MilanBank::open(path);
     if (prog < 0 || prog >= int(pb->entries.size())) throw std::runtime_error("no such patch");
-    return hs2::Patch::parse(pb->read(pb->entries[size_t(prog)].slot1));
+    return parseEntry(c, *pb, bank, prog);
 }
 
 // Engine mode: the same test sequence / events / host model as the single-part path, with MIDI channels.
@@ -295,7 +329,7 @@ int runEngine(const EngineArgs& a) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    std::string content = "C:\\Hypersonic 2 Content", out, eventsArg, hostArg, combiArg, partsArg;
+    std::string content = "C:\\Hypersonic 2 Content", out, eventsArg, hostArg, combiArg, partsArg, patchFile;
     int bank = -1, prog = 0, sr = 44100, block = 32, outputs = 1, skip = 0;
     bool loadBank = false, ringOut = false, cutOnLoad = false;
     double lead = 4.0, tail = 3.0;
@@ -309,6 +343,7 @@ int main(int argc, char** argv) {
         if (arg("--content")) content = argv[++i];
         else if (arg("--bank")) bank = std::atoi(argv[++i]);
         else if (arg("--patch")) prog = std::atoi(argv[++i]);
+        else if (arg("--patch-file")) patchFile = argv[++i];  // load this file as the patch (a .stss capture)
         else if (arg("--sr")) sr = std::atoi(argv[++i]);
         else if (arg("--lead")) lead = std::atof(argv[++i]);
         else if (arg("--out")) out = argv[++i];
@@ -389,30 +424,42 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-    if (bank < 0) {
+    if (bank < 0 && patchFile.empty()) {
         std::fprintf(stderr, "--bank is required\n");
         return 2;
     }
-    if (out.empty()) {
+    if (out.empty() && !patchFile.empty()) {
+        out = std::filesystem::path(patchFile).stem().string() + ".wav";
+    } else if (out.empty()) {
         char buf[64];
         std::snprintf(buf, sizeof buf, "B%03d_P%03d.wav", bank, prog);
         out = buf;
     }
     try {
         hs2::Content c(content);
-        auto path = c.patchBankPath(bank);
-        if (path.empty()) throw std::runtime_error("no patch bank " + std::to_string(bank));
-        auto pb = hs2::MilanBank::open(path);
-        if (prog >= int(pb->entries.size())) throw std::runtime_error("no such patch");
-        auto patch = hs2::Patch::parse(pb->read(pb->entries[prog].slot1));
+        hs2::Patch patch;
+        if (!patchFile.empty()) {
+            std::ifstream f(patchFile, std::ios::binary);
+            if (!f) throw std::runtime_error("cannot open " + patchFile);
+            const std::vector<uint8_t> blob((std::istreambuf_iterator<char>(f)),
+                                            std::istreambuf_iterator<char>());
+            patch = hs2::Patch::parse(blob);
+            std::printf("%s  (%zu elements)\n", patch.name.c_str(), patch.elements.size());
+        } else {
+            const auto path = c.patchBankPath(bank);
+            if (path.empty()) throw std::runtime_error("no patch bank " + std::to_string(bank));
+            const auto pb = hs2::MilanBank::open(path);
+            if (prog >= int(pb->entries.size())) throw std::runtime_error("no such patch");
+            patch = parseEntry(c, *pb, bank, prog);  // a copy-protected entry: its capture (see parseEntry)
+            std::printf("%s / %s  (%zu elements)\n", path.filename().string().c_str(), patch.name.c_str(),
+                        patch.elements.size());
+        }
         if (dry)
             for (int k = 0; k < 4; ++k) patch.params[0x3f + k] = 0.f;  // no send FX input
         if (!solo.empty())
             for (int k = 0; k < int(patch.elements.size()); ++k)
                 if (std::find(solo.begin(), solo.end(), k) == solo.end())
                     patch.elements[k].params[0] = 1.f;  // element param 0 = Mute
-        std::printf("%s / %s  (%zu elements)\n", path.filename().string().c_str(), patch.name.c_str(),
-                    patch.elements.size());
         hs2::PatchPlayer player(c, float(sr));
         player.setRingOut(ringOut);
         player.load(patch);

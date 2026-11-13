@@ -5,6 +5,7 @@
 #include <cstring>
 #include <array>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -16,8 +17,10 @@ struct PatchRef {
     std::string name;       // patch name as stored in the bank directory (combis: from the file name)
     bool combi = false;     // a combi (a whole 16-part setup): bank 120 and up, index = the file's number prefix
     // A Syncrosoft copy-protected patch (the stored data starts with "SyncrosoftContent" instead of "StSS"; 63 of
-    // the factory patches, the "New" HS-2 additions). The port cannot load these.
+    // the factory patches, the "New" HS-2 additions). The port cannot read the stored form; a capture (below)
+    // is the plain patch taken out of the licensed original by hs2capture (tools/hs2capture), and loads normally.
     bool copyProtected = false;
+    bool captured = false;  // copy-protected, and a plain capture file exists: loadable
 };
 
 // True for stored patch data that is Syncrosoft copy-protected.
@@ -51,6 +54,9 @@ struct EffectPreset {
 class PatchLibrary {
 public:
     // Scans <root>/Patches: the patch bank files and the combi bank folders (Patches/NNN name/MMM name.fxb).
+    // It also scans <root>/Captures (and <root>/Captures/patches, where hs2capture --out "<root>\Captures"
+    // writes): the plain "StSS" files of the copy-protected factory patches, taken out of the licensed
+    // original by hs2capture (tools/hs2capture, --mode patch). Those patches then load like any other.
     // Never throws; a bank that fails to open is reported in `errors`.
     static PatchLibrary scan(const std::filesystem::path& root);
 
@@ -64,11 +70,17 @@ public:
     std::vector<std::string> sampleBankNames = std::vector<std::string>(129);
     std::vector<std::string> wavetableNames = std::vector<std::string>(129);
     std::vector<std::string> errors;
+    // (bank, index) -> the .stss capture file, for the copy-protected patches that have one (PatchRef::captured).
+    std::map<std::pair<int, int>, std::filesystem::path> captured;
 
     const BankInfo* bank(int number) const;
     // Index into `patches`, or -1.
     int find(int bank, int index) const;
     int findByName(int bank, const std::string& name) const;
+    const std::filesystem::path* capturePath(int bank, int index) const {
+        const auto it = captured.find({bank, index});
+        return it == captured.end() ? nullptr : &it->second;
+    }
 };
 
 // A patch name as shown to the user: the one-character marker many names start with ('[' ']' '{' '}' '_' or a

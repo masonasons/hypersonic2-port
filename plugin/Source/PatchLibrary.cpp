@@ -6,6 +6,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <utility>
 
 #include "hs2/bank.h"
 
@@ -99,6 +100,24 @@ PatchLibrary PatchLibrary::scan(const std::filesystem::path& root) {
     std::sort(lib.effects.begin(), lib.effects.end(),
               [&](const EffectPreset& a, const EffectPreset& b) { return fxKey(a) < fxKey(b); });
 
+    // The captures of the copy-protected patches (hs2capture --mode patch): plain "StSS" files named
+    // "NNN-PPP name.stss" (NNN bank, PPP index), in <content>/Captures or its patches subfolder (where
+    // hs2capture --out "<content>\Captures" writes them).
+    for (const auto& dir : {root / "Captures" / "patches", root / "Captures"}) {
+        std::error_code cec;
+        for (const auto& e : std::filesystem::directory_iterator(dir, cec)) {
+            const auto name = e.path().filename().string();
+            if (!e.is_regular_file() || e.path().extension() != ".stss" || name.size() < 8 ||
+                !std::isdigit(uint8_t(name[0])) || !std::isdigit(uint8_t(name[1])) ||
+                !std::isdigit(uint8_t(name[2])) || name[3] != '-' || !std::isdigit(uint8_t(name[4])) ||
+                !std::isdigit(uint8_t(name[5])) || !std::isdigit(uint8_t(name[6])) || name[7] != ' ')
+                continue;
+            const int bank = std::stoi(name.substr(0, 3)), index = std::stoi(name.substr(4, 3));
+            if (bank >= 0 && bank < 120 && index >= 0 && index < 128)
+                lib.captured[{bank, index}] = e.path();
+        }
+    }
+
     for (const auto& [number, path] : files) {
         BankInfo b;
         b.number = number;
@@ -116,6 +135,7 @@ PatchLibrary PatchLibrary::scan(const std::filesystem::path& root) {
                 if (r.name.empty()) r.name = "Patch " + std::to_string(i + 1);
                 const auto data = mb->read(entry.slot1);
                 r.copyProtected = isCopyProtectedPatch(data.data(), data.size());
+                r.captured = r.copyProtected && lib.captured.count({number, int(i)}) != 0;
                 b.patches.push_back(int(lib.patches.size()));
                 lib.patches.push_back(std::move(r));
             }

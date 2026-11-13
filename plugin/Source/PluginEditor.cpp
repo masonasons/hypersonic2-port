@@ -1365,7 +1365,7 @@ juce::String HS2Editor::rowText(int row) const {
     if (library_ == nullptr || row < 0 || row >= int(filtered_.size())) return {};
     const auto& ref = library_->patches[size_t(filtered_[size_t(row)])];
     return fromLatin1(ref.name) + (ref.combi ? " (combi)" : "") +
-           (ref.copyProtected ? " (copy-protected, cannot load)" : "");
+           (ref.captured ? " (captured)" : ref.copyProtected ? " (copy-protected, cannot load)" : "");
 }
 
 void HS2Editor::paintListBoxItem(int row, juce::Graphics& g, int width, int height, bool selected) {

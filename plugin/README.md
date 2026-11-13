@@ -68,7 +68,9 @@ The folder choice and the piano memory mode are saved in the user settings file 
 
 ## Presets (DAW preset browsers and Komplete Kontrol)
 
-"Install presets..." in Settings writes a preset file for every patch and combi of the content folder, so they can be chosen from the DAW's preset browser and from Komplete Kontrol. The files hold only the patch reference (bank, number and name); the sound still comes from the content folder. Copy-protected patches are left out.
+"Install presets..." in Settings writes a preset file for every patch and combi of the content folder, so they can be chosen from the DAW's preset browser and from Komplete Kontrol. The files hold only the patch reference (bank, number and name); the sound still comes from the content folder. Copy-protected patches without a capture are left out.
+
+The 63 copy-protected factory patches load from captures in `<content>\Captures\patches` (see tools/hs2capture, --mode patch): plain "StSS" files of those patches, taken out of your licensed Hypersonic 2 by that tool. There is no setting; the patch browser marks them "(captured)" and they load like any other patch. Captures are personal-use data like the rest of your content: keep them on your machine, do not distribute them.
 
 | Format | Windows | Mac |
 |---|---|---|

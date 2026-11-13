@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <fstream>
 #include <limits>
 
 #include "PluginEditor.h"
@@ -659,7 +660,8 @@ void HS2Processor::installPresets() {
             else
                 s << " Komplete Kontrol is not installed, so no Komplete Kontrol presets were written.";
             if (r.skippedProtected > 0)
-                s << " " << r.skippedProtected << " copy-protected patches were left out.";
+                s << " " << r.skippedProtected
+                  << " copy-protected patches without a capture were left out.";
             if (!r.errors.isEmpty()) s << " Problems: " << r.errors.joinIntoString("; ") << ".";
             owner_.setStatus(s);
         }
@@ -826,6 +828,8 @@ void HS2Processor::rescanLibrary() {
     const auto folder = settings_->contentFolder();
     auto lib = std::make_shared<PatchLibrary>(PatchLibrary::scan(toPath(folder)));
     const auto n = lib->patches.size();
+    const auto captured = size_t(std::count_if(lib->patches.begin(), lib->patches.end(),
+                                               [](const PatchRef& r) { return r.captured; }));
     {
         std::lock_guard<std::mutex> lk(infoMu_);
         library_ = std::move(lib);
@@ -835,7 +839,10 @@ void HS2Processor::rescanLibrary() {
         setStatus("No patches found in the content folder " + folder.getFullPathName() +
                   ". Use the Choose content folder button in Settings.");
     else if (reportRescan_.exchange(false))
-        setStatus("Content folder scanned: " + juce::String(int(n)) + " patches and combis.");
+        setStatus("Content folder scanned: " + juce::String(int(n)) + " patches and combis." +
+                  (captured > 0 ? " " + juce::String(int(captured)) +
+                                     " copy-protected patches load from the Captures folder."
+                               : juce::String()));
     ++changeCounter;
 }
 
@@ -880,10 +887,23 @@ bool HS2Processor::prepareCommand(const Request& req, hs2::Content& content, Com
                 if (index < 0 || size_t(index) >= mb->entries.size() || mb->entries[size_t(index)].slot1.size == 0)
                     throw std::runtime_error("patch " + std::to_string(index + 1) + " does not exist in this bank");
                 const auto data = mb->read(mb->entries[size_t(index)].slot1);
-                if (isCopyProtectedPatch(data.data(), data.size()))
-                    throw std::runtime_error("it is a copy-protected Hypersonic 2 patch (Syncrosoft). The port cannot "
-                                             "load copy-protected patches");
-                auto patch = std::make_shared<hs2::Patch>(hs2::Patch::parse(data));
+                std::vector<uint8_t> blob;  // the plain patch: the stored entry, or its capture when protected
+                if (isCopyProtectedPatch(data.data(), data.size())) {
+                    const auto* cap = lib != nullptr ? lib->capturePath(req.bank, index) : nullptr;
+                    if (cap == nullptr)
+                        throw std::runtime_error("it is a copy-protected Hypersonic 2 patch (Syncrosoft) and "
+                                                 "there is no capture for it. Capture it with hs2capture "
+                                                 "(tools/hs2capture, --mode patch) into the content folder's "
+                                                 "Captures\\patches folder");
+                    std::ifstream f(*cap, std::ios::binary);
+                    if (!f) throw std::runtime_error("its capture file " + cap->string() + " cannot be read");
+                    blob.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+                    if (isCopyProtectedPatch(blob.data(), blob.size()))
+                        throw std::runtime_error("its capture file " + cap->string() + " is not a plain patch");
+                } else {
+                    blob.assign(data.begin(), data.end());
+                }
+                auto patch = std::make_shared<hs2::Patch>(hs2::Patch::parse(blob));
                 const auto warnings = warmUp(*patch);
                 if (info != nullptr) {
                     *info = makeInfo(*patch, req.bank, index, bankName, warnings);
