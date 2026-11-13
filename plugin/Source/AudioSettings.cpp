@@ -1,4 +1,6 @@
 #include "AudioSettings.h"
+#include "ControlHelp.h"
+#include "ControlShortcuts.h"
 
 #if JucePlugin_Build_Standalone
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
@@ -7,6 +9,9 @@
 namespace hs2port {
 
 namespace {
+#if JUCE_MAC && JucePlugin_Build_Standalone
+std::unique_ptr<juce::MidiInput> virtualMidi;
+#endif
 void hiddenLabel(juce::Label& l, const juce::String& text, juce::Component& target) {
     l.setText(text, juce::dontSendNotification);
     l.attachToComponent(&target, true);
@@ -15,7 +20,7 @@ void hiddenLabel(juce::Label& l, const juce::String& text, juce::Component& targ
 
 void titled(juce::Component& c, const juce::String& title, const juce::String& description, int order) {
     c.setTitle(title);
-    c.setDescription(description);
+    setControlHelp(c, description);
     c.setWantsKeyboardFocus(true);
     c.setExplicitFocusOrder(order);
 }
@@ -28,7 +33,7 @@ juce::String msText(double samples, double rate) {
 AudioMidiSettings::AudioMidiSettings(juce::AudioDeviceManager& devices, std::function<void()> changed)
     : devices_(devices), changed_(std::move(changed)) {
     setTitle("Audio and MIDI settings");
-    setFocusContainerType(FocusContainerType::keyboardFocusContainer);
+    setFocusContainerType(FocusContainerType::focusContainer);
 
     addAndMakeVisible(driver_);
     titled(driver_, "Audio driver",
@@ -82,10 +87,11 @@ AudioMidiSettings::AudioMidiSettings(juce::AudioDeviceManager& devices, std::fun
         update();
     };
 
-    addAndMakeVisible(midiGroup_);
-    midiGroup_.setTitle("MIDI inputs");
-    midiGroup_.setExplicitFocusOrder(7);
-    midiLabel_.setText("MIDI inputs (the app plays every input that is on, on all 16 channels)", juce::dontSendNotification);
+    addAndMakeVisible(midiViewport_);
+    midiViewport_.setViewedComponent(&midiGroup_, false);
+    midiViewport_.setExplicitFocusOrder(7);
+    midiViewport_.setWantsKeyboardFocus(false);
+    midiLabel_.setText("MIDI inputs", juce::dontSendNotification);
     midiLabel_.setAccessible(false);
     addAndMakeVisible(midiLabel_);
 
@@ -99,11 +105,25 @@ AudioMidiSettings::AudioMidiSettings(juce::AudioDeviceManager& devices, std::fun
     statusLabel_.setAccessible(false);
     addAndMakeVisible(statusLabel_);
 
-    addAndMakeVisible(close_);
-    titled(close_, "Close", "Closes this window. Settings are saved as they change. Escape closes it too.", 9);
-    close_.onClick = [this] {
-        if (auto* w = findParentComponentOfClass<juce::DialogWindow>()) w->exitModalState(0);
+#if JUCE_MAC && JucePlugin_Build_Standalone
+    addAndMakeVisible(virtualMidi_);
+    titled(virtualMidi_, "Virtual MIDI input", "Lets other apps send MIDI to the HS2 Port destination.", 7);
+    midiViewport_.setExplicitFocusOrder(8);
+    status_.setExplicitFocusOrder(9);
+    virtualMidi_.setToggleState(virtualMidi != nullptr, juce::dontSendNotification);
+    virtualMidi_.onClick = [this] {
+        if (!setMacVirtualMidiEnabled(virtualMidi_.getToggleState())) {
+            virtualMidi_.setToggleState(false, juce::dontSendNotification);
+            error_ = "Could not open the HS2 Port virtual MIDI input.";
+            update();
+            status_.grabKeyboardFocus();
+        }
     };
+#endif
+    for (auto [control, key] : std::initializer_list<std::pair<juce::Component*, char>>{
+             {&driver_, 'd'}, {&output_, 'o'}, {&rate_, 's'}, {&buffer_, 'u'}, {&status_, 't'},
+             {&refresh_, 'r'}, {&panel_, 'p'}})
+        setControlMnemonic(*control, key);
 
     devices_.addChangeListener(this);
     rebuildMidiInputs();
@@ -111,6 +131,24 @@ AudioMidiSettings::AudioMidiSettings(juce::AudioDeviceManager& devices, std::fun
 }
 
 AudioMidiSettings::~AudioMidiSettings() { devices_.removeChangeListener(this); }
+
+bool AudioMidiSettings::handleMnemonic(int key) {
+    juce::Component* target = nullptr;
+    switch (key) {
+        case 'd': target = &driver_; break;
+        case 'o': target = &output_; break;
+        case 's': target = &rate_; break;
+        case 'u': target = &buffer_; break;
+        case 'm': if (!midiToggles_.empty()) target = midiToggles_.front().get(); break;
+        case 't': target = &status_; break;
+        case 'r': if (refresh_.isEnabled()) { refresh_.triggerClick(); return true; } break;
+        case 'p': if (panel_.isEnabled()) { panel_.triggerClick(); return true; } break;
+        default: break;
+    }
+    if (target == nullptr || !target->isShowing() || !target->isEnabled()) return false;
+    target->grabKeyboardFocus();
+    return true;
+}
 
 void AudioMidiSettings::focusFirst() {
     juce::Component::SafePointer<AudioMidiSettings> safe(this);
@@ -142,13 +180,17 @@ void AudioMidiSettings::resized() {
         panel_.setBounds(line.removeFromLeft(220));
         r.removeFromTop(12);
     }
+#if JUCE_MAC && JucePlugin_Build_Standalone
+    virtualMidi_.setBounds(r.removeFromTop(28));
+    r.removeFromTop(6);
+#endif
     midiLabel_.setBounds(r.removeFromTop(24));
     const int midiH = std::max(1, int(midiToggles_.size())) * 28;
-    midiGroup_.setBounds(r.removeFromTop(midiH));
+    midiViewport_.setBounds(r.removeFromTop(juce::jmin(midiH, juce::jmax(28, r.getHeight() - 100))));
+    midiGroup_.setSize(midiViewport_.getMaximumVisibleWidth(), midiH);
     for (size_t i = 0; i < midiToggles_.size(); ++i)
         midiToggles_[i]->setBounds(0, int(i) * 28, midiGroup_.getWidth(), 26);
     r.removeFromTop(10);
-    close_.setBounds(r.removeFromBottom(30).removeFromRight(120));
     r.removeFromBottom(8);
     statusLabel_.setBounds(r.removeFromTop(22));
     status_.setBounds(r);
@@ -217,7 +259,11 @@ void AudioMidiSettings::update() {
         s << "No MIDI inputs found. Connect one and choose Refresh devices.";
     else
         s << (on.isEmpty() ? juce::String("No MIDI input is on.") : "MIDI inputs on: " + on.joinIntoString(", ") + ".");
-    status_.setText(s.trimEnd(), false);
+    const auto text = s.trimEnd();
+    if (status_.getText() != text) {
+        status_.setText(text, false);
+        status_.setCaretPosition(0);
+    }
 }
 
 void AudioMidiSettings::applyDevice(int field) {
@@ -250,8 +296,9 @@ void AudioMidiSettings::rebuildMidiInputs() {
     midiToggles_.clear();
     int order = 1;
     for (const auto& m : midiDevices_) {
-        auto t = std::make_unique<juce::ToggleButton>("MIDI input: " + m.name);
+        auto t = std::make_unique<AccessibleToggle>(m.name);
         titled(*t, "MIDI input: " + m.name, "When on, this app plays what comes in on this MIDI input.", order++);
+        if (midiToggles_.empty()) setControlMnemonic(*t, 'm');
         t->setToggleState(devices_.isMidiInputDeviceEnabled(m.identifier), juce::dontSendNotification);
         const auto id = m.identifier;
         auto* raw = t.get();
@@ -263,8 +310,6 @@ void AudioMidiSettings::rebuildMidiInputs() {
         midiGroup_.addAndMakeVisible(*t);
         midiToggles_.push_back(std::move(t));
     }
-    // the window grows with the number of MIDI inputs
-    setSize(getWidth() > 0 ? getWidth() : 620, 420 + int(std::max<size_t>(1, midiToggles_.size())) * 28);
     resized();
 }
 
@@ -276,24 +321,47 @@ bool standaloneAudioAvailable() {
 #endif
 }
 
-void showAudioMidiSettings([[maybe_unused]] juce::Component* centreAround) {
+void sendStandaloneNote(const juce::MidiMessage& message) {
 #if JucePlugin_Build_Standalone
-    auto* holder = juce::StandalonePluginHolder::getInstance();
-    if (holder == nullptr) return;
-    auto content = std::make_unique<AudioMidiSettings>(holder->deviceManager, [] {
-        if (auto* h = juce::StandalonePluginHolder::getInstance()) h->saveAudioDeviceState();
-    });
-    content->focusFirst();
-    juce::DialogWindow::LaunchOptions o;
-    o.content.setOwned(content.release());
-    o.dialogTitle = "Audio and MIDI settings";
-    o.dialogBackgroundColour = o.content->getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId);
-    o.escapeKeyTriggersCloseButton = true;
-    o.useNativeTitleBar = true;
-    o.resizable = false;
-    o.componentToCentreAround = centreAround;
-    o.launchAsync();
+    if (auto* holder = juce::StandalonePluginHolder::getInstance()) {
+        auto timed = message;
+        timed.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+        holder->player.getMidiMessageCollector().addMessageToQueue(timed);
+    }
+#else
+    juce::ignoreUnused(message);
 #endif
 }
+
+std::unique_ptr<AudioMidiSettings> createAudioMidiSettings() {
+#if JucePlugin_Build_Standalone
+    auto* holder = juce::StandalonePluginHolder::getInstance();
+    if (holder != nullptr) return std::make_unique<AudioMidiSettings>(holder->deviceManager, [] {
+        if (auto* h = juce::StandalonePluginHolder::getInstance()) h->saveAudioDeviceState();
+    });
+#endif
+    return {};
+}
+
+#if JUCE_MAC && JucePlugin_Build_Standalone
+bool setMacVirtualMidiEnabled(bool enabled) {
+    auto* holder = juce::StandalonePluginHolder::getInstance();
+    if (holder == nullptr) return false;
+    if (enabled && virtualMidi == nullptr) {
+        virtualMidi = juce::MidiInput::createNewDevice("HS2 Port", &holder->player);
+        if (virtualMidi == nullptr) return false;
+        virtualMidi->start();
+    } else if (!enabled) {
+        stopMacVirtualMidi();
+    }
+    if (holder->settings != nullptr) holder->settings->setValue("virtualMidiEnabled", enabled);
+    return true;
+}
+
+void stopMacVirtualMidi() {
+    if (virtualMidi != nullptr) virtualMidi->stop();
+    virtualMidi.reset();
+}
+#endif
 
 }  // namespace hs2port

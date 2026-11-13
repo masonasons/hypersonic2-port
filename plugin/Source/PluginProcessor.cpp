@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "ProfileDirectory.h"
 
 #include <algorithm>
 #include <cmath>
@@ -88,7 +89,42 @@ GlobalSettings::GlobalSettings() {
     o.folderName = "HS2Port";
     o.osxLibrarySubFolder = "Application Support";
     o.commonToAllUsers = false;
-    props_ = std::make_unique<juce::PropertiesFile>(o);
+    const auto profile = profileDirectory();
+    props_ = profile == juce::File() ? std::make_unique<juce::PropertiesFile>(o)
+        : std::make_unique<juce::PropertiesFile>(profile.getChildFile("HS2Port.settings"), o);
+}
+
+namespace {
+const char* presetFolderKey(PresetDestination format) {
+    return format == PresetDestination::vst3 ? "vst3PresetFolder" : "nksPresetFolder";
+}
+constexpr const char* kUpgradeOffered = "nksUpgradeOfferedRevision";
+}
+
+juce::File GlobalSettings::presetFolderOverride(PresetDestination format) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    const auto path = props_->getValue(presetFolderKey(format));
+    return juce::File::isAbsolutePath(path) ? juce::File(path) : juce::File{};
+}
+
+void GlobalSettings::setPresetFolderOverride(PresetDestination format, const juce::File& folder) {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (folder == juce::File{}) props_->removeValue(presetFolderKey(format));
+    else props_->setValue(presetFolderKey(format), folder.getFullPathName());
+    props_->saveIfNeeded();
+}
+
+bool GlobalSettings::recordPresetUpgradeOffer(int revision) {
+    const std::lock_guard lock(mu_);
+    if (props_->getIntValue(kUpgradeOffered) >= revision) return false;
+    props_->setValue(kUpgradeOffered, revision);
+    props_->saveIfNeeded();
+    return true;
+}
+
+bool GlobalSettings::presetUpgradeWasOffered(int revision) const {
+    const std::lock_guard lock(mu_);
+    return props_->getIntValue(kUpgradeOffered) >= revision;
 }
 
 juce::File GlobalSettings::defaultContentFolder() {
@@ -612,7 +648,8 @@ HS2Processor::HS2Processor()
 HS2Processor::~HS2Processor() {
     stopTimer();
     presetCancel_ = true;
-    if (presetJob_ != nullptr) presetJob_->stopThread(20000);
+    // Let the current preview or final file replacement finish; killing the thread could leave a partial install.
+    if (presetJob_ != nullptr) presetJob_->stopThread(-1);
     loader_->stopThread(10000);
 }
 
@@ -623,18 +660,32 @@ void HS2Processor::rescanContent() {
     loader_->notify();
 }
 
-void HS2Processor::installPresets() {
+void HS2Processor::resetPartLinks() {
+    resetLinksPending_ = true;
+    setStatus("Part links reset. Each part plays its own MIDI channel.");
+}
+
+PresetExportOptions HS2Processor::presetInstallOptions() const {
+    PresetExportOptions o;
+    o.contentRoot = settings_->contentFolder();
+    const auto vst3 = presetFolderOverride(PresetDestination::vst3);
+    const auto nks = presetFolderOverride(PresetDestination::nks);
+    o.vst3Root = vst3 == juce::File{} ? defaultVst3PresetFolder() : vst3;
+    o.auRoot = defaultAuPresetFolder();
+    if (nks != juce::File{}) o.nksRoot = nks;
+    else if (kompleteKontrolInstalled()) o.nksRoot = defaultNksPresetFolder();
+    for (const auto& custom : {vst3, nks})
+        if (custom != juce::File{}) o.requiredExistingRoots.push_back(custom);
+    return o;
+}
+
+void HS2Processor::installPresets(const PresetExportOptions& o) {
     if (installingPresets()) return;
     const auto lib = library();
     if (lib == nullptr || lib->patches.empty()) {
         setStatus("The patch list is not ready yet, or the content folder has no patches. Presets were not installed.");
         return;
     }
-    PresetExportOptions o;
-    o.contentRoot = settings_->contentFolder();
-    o.vst3Root = defaultVst3PresetFolder();
-    o.auRoot = defaultAuPresetFolder();
-    if (kompleteKontrolInstalled()) o.nksRoot = defaultNksPresetFolder();  // only with Komplete Kontrol installed
     presetCancel_ = false;
 
     class Job : public juce::Thread {
@@ -650,19 +701,20 @@ void HS2Processor::installPresets() {
                 },
                 &owner_.presetCancel_);
             juce::String s;
-            s << "Installed presets for " << r.patches << " patches and " << r.combis << " combis. VST3 presets: "
-              << o_.vst3Root.getFullPathName() << ".";
+            if (!r.errors.isEmpty()) {
+                owner_.setStatus("Preset installation did not complete. " + r.errors.joinIntoString("; "));
+                return;
+            }
+            s << "Installed presets for " << r.patches << " patches and " << r.combis << " combis.";
+            if (o_.vst3Root != juce::File()) s << " VST3 presets: " << o_.vst3Root.getFullPathName() << ".";
             if (o_.auRoot != juce::File()) s << " Audio Unit presets: " << o_.auRoot.getFullPathName() << ".";
             if (o_.nksRoot != juce::File())
                 s << " Komplete Kontrol presets: " << o_.nksRoot.getFullPathName() << ", with " << r.previews
                   << " sound previews (in Komplete Kontrol they appear under User; rescan the plug-ins first if HS2 Port"
                   << " is new there).";
-            else
-                s << " Komplete Kontrol is not installed, so no Komplete Kontrol presets were written.";
             if (r.skippedProtected > 0)
                 s << " " << r.skippedProtected
                   << " copy-protected patches without a capture were left out.";
-            if (!r.errors.isEmpty()) s << " Problems: " << r.errors.joinIntoString("; ") << ".";
             owner_.setStatus(s);
         }
 
@@ -1166,12 +1218,18 @@ void HS2Processor::rebuildNow(const Rebuild& rb) {
         const juce::SpinLock::ScopedLockType sl(swapLock_);
         std::swap(active_, act);
         appliedSetup_ = setupValues;  // what the new engine has
-        for (int i = 0; i < kNumExposed; ++i) engineVal_[size_t(i)] = active_->engine->getParameter(engineIndex(i));
+        for (int i = 0; i < kNumExposed; ++i) {
+            const auto index = size_t(i);
+            engineVal_[index] = active_->engine->getParameter(engineIndex(i));
+            hostSeen_[index] = exposed_[index]->getValue();
+            dirty_[index] = true;
+        }
         for (int k = 0; k < kGfxSlots; ++k) gfxType_[size_t(k)] = active_->engine->globalFxType(k);
-        resyncAll_ = true;
         const juce::SpinLock::ScopedLockType cl(cmdLock_);
         cmdQueue_.clear();  // the rebuild includes every load queued before it
     }
+    // Some hosts query the newly loaded preset while their audio callback is stopped.
+    anyDirty_ = true;
     act.reset();  // the previous engine is freed here, not on the audio thread
 
     {
@@ -1233,11 +1291,13 @@ void HS2Processor::applySetup(hs2::Engine& e, const SetupValues& from, const Set
 
 std::array<float, kNumExposed> HS2Processor::currentValues(std::array<bool, kNumExposed>* valid) const {
     std::array<float, kNumExposed> v{};
+    const bool resetLinks = resetLinksPending_.load();
     for (int i = 0; i < kNumExposed; ++i) {
         const float h = exposed_[size_t(i)]->getValue();
         // A host change the audio thread has not applied yet counts; otherwise the engine's value.
         const bool hostPending = h != hostSeen_[size_t(i)].load() && h != echo_[size_t(i)].load();
-        v[size_t(i)] = hostPending ? h : engineVal_[size_t(i)].load();
+        v[size_t(i)] = resetLinks && i >= kLinkBase && i < kGfxBase ? 0.f
+            : hostPending ? h : engineVal_[size_t(i)].load();
         if (valid != nullptr) (*valid)[size_t(i)] = !std::isnan(v[size_t(i)]);
     }
     return v;
@@ -1255,13 +1315,12 @@ HS2Processor::Rebuild HS2Processor::currentRebuild() const {
 }
 
 void HS2Processor::syncParameters(hs2::Engine& eng) {
-    const bool all = resyncAll_.exchange(false);
     bool any = false;
     for (int i = 0; i < kNumExposed; ++i) {
         const int idx = engineIndex(i);
         const float e = eng.getParameter(idx);
         const float h = exposed_[size_t(i)]->getValue();
-        if (all || e != engineVal_[size_t(i)].load(std::memory_order_relaxed)) {
+        if (e != engineVal_[size_t(i)].load(std::memory_order_relaxed)) {
             // The engine changed (a load, a combi, MIDI): the host parameter follows (message thread).
             engineVal_[size_t(i)] = e;
             hostSeen_[size_t(i)] = h;
@@ -1367,6 +1426,13 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
             }
 
     syncParameters(eng);
+
+    if (resetLinksPending_.exchange(false)) {
+        // Apply the reset after queued loads and automation, before routing this block's notes.
+        for (int part = 1; part < kNumParts; ++part)
+            eng.setParameter(engineIndex(linkIndex(part)), 0.f);
+        syncParameters(eng);
+    }
 
     // MIDI: every channel goes to the engine, which routes it to its part (part N = channel N) and handles bank
     // select and program changes itself (they come back as load requests below).
@@ -1489,6 +1555,8 @@ void HS2Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuff
             outR[start + i] = interleaved_[size_t(2 * i + 1)];
         }
     }
+
+    syncParameters(eng);
 
     // The patch editor's copy of the part it shows (every third block).
     lastBlockMs_ = juce::Time::getMillisecondCounter();

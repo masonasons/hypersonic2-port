@@ -8,6 +8,9 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "AccessibleToggle.h"
+#include "ReviewText.h"
+#include "KeyboardChoice.h"
 
 namespace hs2port {
 
@@ -20,6 +23,7 @@ public:
     void resized() override;
     void paint(juce::Graphics& g) override;
     void focusFirst();
+    bool handleMnemonic(int key);
 
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
@@ -33,21 +37,30 @@ private:
     juce::String error_;
 
     juce::Label driverLabel_, outputLabel_, rateLabel_, bufferLabel_, midiLabel_, statusLabel_;
-    juce::ComboBox driver_, output_, rate_, buffer_;
+    KeyboardChoice driver_, output_, rate_, buffer_;
     std::vector<int> bufferSizes_;
     std::vector<double> rates_;
-    juce::TextButton refresh_{"Refresh devices"}, panel_{"Driver control panel..."}, close_{"Close"};
+    juce::TextButton refresh_{"Refresh devices"}, panel_{"Driver control panel..."};
+#if JUCE_MAC
+    AccessibleToggle virtualMidi_{"Virtual MIDI input"};
+#endif
+    juce::Viewport midiViewport_;
     juce::Component midiGroup_;
-    std::vector<std::unique_ptr<juce::ToggleButton>> midiToggles_;
+    std::vector<std::unique_ptr<AccessibleToggle>> midiToggles_;
     juce::Array<juce::MidiDeviceInfo> midiDevices_;
-    juce::TextEditor status_;
+    ReviewText status_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioMidiSettings)
 };
 
 // True when running as the standalone app (its audio device manager is reachable).
 bool standaloneAudioAvailable();
-// Opens the Audio and MIDI settings window of the standalone app (no-op in a plugin host).
-void showAudioMidiSettings(juce::Component* centreAround);
+void sendStandaloneNote(const juce::MidiMessage&);
+// Creates the inline audio and MIDI page (null in a plugin host).
+std::unique_ptr<AudioMidiSettings> createAudioMidiSettings();
+#if JUCE_MAC
+bool setMacVirtualMidiEnabled(bool enabled);
+void stopMacVirtualMidi();
+#endif
 
 }  // namespace hs2port

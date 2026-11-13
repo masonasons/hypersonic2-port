@@ -35,6 +35,9 @@
 
 namespace hs2port {
 
+struct PresetExportOptions;
+enum class PresetDestination { vst3, nks };
+
 constexpr int kNumParts = hs2::Engine::kParts;
 constexpr int kNumKnobs = 6;
 constexpr int kNumSends = 4;
@@ -71,6 +74,10 @@ public:
     GlobalSettings();
     juce::File contentFolder() const;
     void setContentFolder(const juce::File& f);
+    juce::File presetFolderOverride(PresetDestination format) const;
+    void setPresetFolderOverride(PresetDestination format, const juce::File& folder);
+    bool recordPresetUpgradeOffer(int revision);
+    bool presetUpgradeWasOffered(int revision) const;
     int memoryMode() const;  // 0 ECO, 1 MID, 2 XXL
     void setMemoryMode(int m);
     static juce::File defaultContentFolder();
@@ -225,7 +232,15 @@ public:
     void setRingOut(bool on) { ringOut_ = on; }
     // Writes VST3 (and on the Mac AU) presets and Komplete Kontrol NKS presets for every loadable patch and combi of
     // the content folder (PresetExport.h), on a background thread; progress and the result go to the status text.
-    void installPresets();
+    juce::File presetFolderOverride(PresetDestination format) const { return settings_->presetFolderOverride(format); }
+    void setPresetFolderOverride(PresetDestination format, const juce::File& folder) {
+        settings_->setPresetFolderOverride(format, folder);
+    }
+    PresetExportOptions presetInstallOptions() const;
+    bool recordPresetUpgradeOffer(int revision) { return settings_->recordPresetUpgradeOffer(revision); }
+    bool presetUpgradeWasOffered(int revision) const { return settings_->presetUpgradeWasOffered(revision); }
+    void installPresets(const PresetExportOptions& options);
+    void cancelPresetInstall() { presetCancel_ = true; }
     bool installingPresets() const { return presetJob_ != nullptr && presetJob_->isThreadRunning(); }
     // Loading a patch stops the part's previous patch (short fade) instead of letting it sound on. Default on.
     bool cutOnLoad() const { return cutOnLoad_.load(); }
@@ -247,6 +262,7 @@ public:
     void setPreloadSamples(bool on) { preload_ = on; }
     // Stops every note on every part (sustain off, all sound off, all notes off on the 16 channels).
     void allNotesOff() { panic_ = true; }
+    void resetPartLinks();
     // Reads the content folder's patch banks, tunings and effect presets again.
     void rescanContent();
 
@@ -369,7 +385,6 @@ private:
     std::array<std::atomic<bool>, kNumExposed> dirty_;       // engine changed: push engineVal_ to the host
     std::array<std::atomic<float>, kNumExposed> loadedVal_;  // the value right after the last load (NaN: none yet)
     std::atomic<bool> anyDirty_{false};
-    std::atomic<bool> resyncAll_{false};
     std::atomic<int> infoGeneration_{0};
 
     // Audio-thread state.
@@ -391,6 +406,7 @@ private:
     std::atomic<int> tuneSemis_{0}, tuneCents_{0};
     std::atomic<bool> preload_{false};
     std::atomic<bool> panic_{false};
+    std::atomic<bool> resetLinksPending_{false};
     struct SetupValues {
         float hype = 0.33f, velSens = 0.5f, touchSens = 0.5f;
         int semis = 0, cents = 0;

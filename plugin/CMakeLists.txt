@@ -18,6 +18,9 @@ juce_add_plugin(HS2Port
     NEEDS_WEB_BROWSER FALSE
     NEEDS_CURL FALSE)
 
+target_sources(HS2Port_Standalone PRIVATE Source/StandaloneApp.cpp)
+target_compile_definitions(HS2Port_Standalone PRIVATE JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
+
 target_sources(HS2Port PRIVATE
     Source/AudioSettings.cpp
     Source/PatchEdit.cpp
@@ -25,6 +28,16 @@ target_sources(HS2Port PRIVATE
     Source/PresetExport.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp)
+
+if(APPLE)
+  target_sources(HS2Port PRIVATE Source/MacMenuBar.mm)
+endif()
+if(APPLE OR WIN32)
+  juce_add_console_app(hs2_midi_input_preferences VERSION 0.1.0 PRODUCT_NAME "HS2 MIDI Input Preferences Test")
+  target_sources(hs2_midi_input_preferences PRIVATE tests/midi_input_preferences.cpp)
+  target_link_libraries(hs2_midi_input_preferences PRIVATE juce::juce_audio_devices juce::juce_events
+    juce::juce_recommended_config_flags)
+endif()
 
 # Legacy parameter ids: a host parameter's VST3 / AU id is its index (0 master, then 13 per part). Komplete Kontrol's
 # knob pages in the NKS presets (PresetExport.cpp) name parameters by that number.
@@ -41,6 +54,8 @@ target_compile_definitions(HS2Port PUBLIC
 # Windows dist script, CI) stops the configure when ASIO cannot be enabled, so a release never loses it silently.
 # The SDK is licensed under Steinberg's ASIO licence or GPLv3.
 if(WIN32)
+  target_sources(HS2Port PRIVATE Source/TypingAnnouncementWindows.cpp)
+  target_link_libraries(HS2Port PRIVATE oleaut32)
   option(HS2_ASIO "ASIO in the standalone app (the ASIO SDK is downloaded when HS2_ASIO_SDK_DIR has none)" ON)
   option(HS2_REQUIRE_ASIO "Stop the configure when ASIO cannot be enabled" OFF)
   set(HS2_ASIO_SDK_DIR "C:/programs/asiosdk/ASIOSDK" CACHE PATH "Steinberg ASIO SDK folder (contains common/asio.h)")
@@ -98,3 +113,14 @@ target_sources(hs2presets PRIVATE tools/hs2presets.cpp Source/PresetExport.cpp S
 target_compile_definitions(hs2presets PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_FORCE_USE_LEGACY_PARAM_IDS=1)
 target_link_libraries(hs2presets PRIVATE hs2core juce::juce_audio_processors juce::juce_audio_formats
     juce::juce_recommended_config_flags)
+
+juce_add_console_app(hs2_preset_transaction VERSION 0.1.0 PRODUCT_NAME "hs2_preset_transaction")
+target_sources(hs2_preset_transaction PRIVATE tests/preset_transaction.cpp Source/PresetExport.cpp Source/PatchLibrary.cpp)
+target_compile_definitions(hs2_preset_transaction PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_FORCE_USE_LEGACY_PARAM_IDS=1)
+target_link_libraries(hs2_preset_transaction PRIVATE hs2core juce::juce_audio_processors juce::juce_audio_formats
+    juce::juce_recommended_config_flags)
+
+juce_add_console_app(hs2_keyboard_controls VERSION 0.1.0 PRODUCT_NAME "HS2 Keyboard Controls Test")
+target_sources(hs2_keyboard_controls PRIVATE tests/keyboard_controls.cpp)
+target_compile_definitions(hs2_keyboard_controls PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_link_libraries(hs2_keyboard_controls PRIVATE juce::juce_gui_basics juce::juce_recommended_config_flags)

@@ -32,6 +32,9 @@ int partParamIndex(int j) {
     return j >= 0 && j < 0x30 ? kMap[j] : -1;
 }
 
+constexpr int kFirstHyperknob = 9;
+constexpr int kHyperknobCount = 6;
+
 // send FX parameter j (0..0x17 of a 0x18 block) -> element parameter (FUN_1008a950)
 int sendFxParamIndex(int j) {
     if (j == 0) return 0;
@@ -287,8 +290,8 @@ void Engine::loadIntoPart(int ch, const Patch* patch, bool restore, int bank) {
         }
         P.setParam(0, 0x3d, vst_[size_t(P0 + 4)]);
     }
-    static constexpr int kKnobs[6] = {0x0e, 0x0f, 0x67, 0x69, 0x6b, 0x6d};
-    for (int k = 0; k < 6; ++k) setP(9 + k, get(kKnobs[k]));
+    for (int j = kFirstHyperknob; j < kFirstHyperknob + kHyperknobCount; ++j)
+        setP(j, get(partParamIndex(j)));
     static constexpr int kTail[][2] = {{0x1a, 0x3b}, {0x1b, 0x49}, {0x1c, 0x4a}, {0x1d, 0x39}, {0x1e, 0x03},
                                        {0x1f, 0x94}, {0x20, 0x4c}, {0x21, 0x4d}, {0x22, 0x4e}, {0x23, 0x50},
                                        {0x24, 0x51}, {0x25, 0x52}, {0x26, 0x53}, {0x27, 0x11}, {0x28, 0x12},
@@ -698,7 +701,20 @@ void Engine::render(int n, double pos) {
                 at = e.offset;
             }
             e.m[0] &= 0xf0;
-            s.cur->midiEvent(e.m, false);
+            if (e.m[0] == 0xb0 && s.cur.get() == s.latest()) {
+                // Patch CC assignments can change a Hyperknob directly, bypassing setParameter.
+                std::array<float, kHyperknobCount> previous{};
+                for (int k = 0; k < kHyperknobCount; ++k)
+                    previous[size_t(k)] = s.cur->getParam(0, partParamIndex(kFirstHyperknob + k));
+                s.cur->midiEvent(e.m, false);
+                for (int k = 0; k < kHyperknobCount; ++k) {
+                    const int j = kFirstHyperknob + k;
+                    const float now = s.cur->getParam(0, partParamIndex(j));
+                    if (now != previous[size_t(k)]) vst_[size_t(ch * kParamsPerPart + j)] = now;
+                }
+            } else {
+                s.cur->midiEvent(e.m, false);
+            }
             for (auto& o : s.old)
                 if (e.m[0] != 0x90) o->midiEvent(e.m, false);
         }
