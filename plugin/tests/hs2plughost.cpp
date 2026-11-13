@@ -38,6 +38,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <cstdio>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <functional>
@@ -275,6 +276,20 @@ int main(int argc, char* argv[]) {
     }
     plugin->prepareToPlay(sr, block);
 
+    const bool checkVintage = args.contains("--expect-vintage-readout");
+    auto checkVintageValues = [&](const char* stage, float tremolo) {
+        const auto& p = plugin->getParameters();
+        constexpr int noteOff = 8, tone = 10, chorus = 11, tremoloKnob = 13;
+        const auto near = [&](int index, float expected) { return std::abs(p[index]->getValue() - expected) < 0.001f; };
+        std::printf("Vintage EP %s: note-off %.6f, tone %.6f, chorus %.6f, tremolo %.6f\n", stage,
+                    p[noteOff]->getValue(), p[tone]->getValue(), p[chorus]->getValue(), p[tremoloKnob]->getValue());
+        return near(noteOff, 0.5f) && near(tone, 1.f) && near(chorus, 0.2734375f) && near(tremoloKnob, tremolo);
+    };
+    bool vintagePassed = true;
+    if (checkVintage) {
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(500);
+        vintagePassed = checkVintageValues("before audio", 0.f);
+    }
     const int start = restored ? 0 : (pcParam || !pcChannels.empty()) ? 2 * block : block;  // patch start
     double end = 0;
     for (const auto& n : notes) end = std::max(end, n.t + n.len);
@@ -303,6 +318,7 @@ int main(int argc, char* argv[]) {
         evs.push_back({start + int((lead + n.t + n.len) * sr), juce::MidiMessage::noteOff(n.ch, n.pitch)});
     }
     std::stable_sort(evs.begin(), evs.end(), [](const Ev& a, const Ev& b) { return a.frame < b.frame; });
+    if (checkVintage) evs.insert(evs.begin(), {0, juce::MidiMessage::controllerEvent(1, 1, 96)});
 
     // Optional parameter change (--param "name prefix=value"; --knob k=value = "Part 1 Hyperknob k"), made after the
     // patch has loaded and the host parameters have taken its values (a load sets the patch's own settings).
@@ -393,6 +409,7 @@ int main(int argc, char* argv[]) {
     writeWav(juce::File(opt("--out", "plughost.wav")), aligned, int(sr));
 
     if (pump) juce::MessageManager::getInstance()->runDispatchLoopUntil(50);
+    if (checkVintage) vintagePassed = checkVintageValues("after mod wheel", 96.f / 127.f) && vintagePassed;
     if (args.contains("--dump-params"))  // what a host's parameter list shows: names and value text (Hyperknobs only)
         for (auto* p : plugin->getParameters())
             if (p->getName(100).startsWith("Part 1 ") || p->getName(100).startsWith("Part 2 Link") ||
@@ -407,5 +424,5 @@ int main(int argc, char* argv[]) {
     plugin->releaseResources();
     plugin = nullptr;
     std::printf("rendered %d frames\n", int(aligned.size() / 2));
-    return 0;
+    return vintagePassed ? 0 : 4;
 }

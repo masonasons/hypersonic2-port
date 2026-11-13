@@ -241,6 +241,44 @@ if(NOT combo_pos EQUAL -1)
     hs2_patch_file("${combo_file}" c1_old c1_new)
 endif()
 
+# ---- Windows UI Automation: keep shortcuts separate from the accessible name and help.
+set(uia_file "modules/juce_gui_basics/native/accessibility/juce_AccessibilityElement_windows.cpp")
+set(u1_old [=[            case UIA_HelpTextPropertyId:]=])
+set(u1_new [=[            // HS2 patch: optional shortcut metadata supplied by the editor.
+            case UIA_AcceleratorKeyPropertyId:
+            case UIA_AccessKeyPropertyId:
+            {
+                const auto key = propertyId == UIA_AcceleratorKeyPropertyId ? "hs2AcceleratorKey" : "hs2AccessKey";
+                const auto shortcut = accessibilityHandler.getComponent().getProperties()[key].toString();
+                if (shortcut.isNotEmpty())
+                    VariantHelpers::setString (shortcut, pRetVal);
+                break;
+            }
+            case UIA_HelpTextPropertyId:]=])
+hs2_patch_file("${uia_file}" u1_old u1_new)
+
+# ---- MIDI preferences: forget an explicitly disabled input, including a saved
+# identifier which JUCE resolved by name after the operating system changed it.
+set(midi_file "modules/juce_audio_devices/audio_io/juce_AudioDeviceManager.cpp")
+set(m1_old [=[            auto removePredicate = [identifier] (const std::unique_ptr<MidiInput>& in) { return in->getIdentifier() == identifier; };]=])
+set(m1_new [=[            // HS2 patch: mirror the identifier-first, name-second restore rule.
+            const auto inputs = MidiInput::getAvailableDevices();
+            for (int i = midiDeviceInfosFromXml.size(); --i >= 0;)
+            {
+                const auto& saved = midiDeviceInfosFromXml.getReference (i);
+                const auto matchesId = [&] (const auto& input) { return input.identifier == saved.identifier; };
+                const auto matchesName = [&] (const auto& input) { return input.name == saved.name; };
+                auto resolved = std::find_if (inputs.begin(), inputs.end(), matchesId);
+                if (resolved == inputs.end())
+                    resolved = std::find_if (inputs.begin(), inputs.end(), matchesName);
+
+                if (saved.identifier == identifier || (resolved != inputs.end() && resolved->identifier == identifier))
+                    midiDeviceInfosFromXml.remove (i);
+            }
+
+            auto removePredicate = [identifier] (const std::unique_ptr<MidiInput>& in) { return in->getIdentifier() == identifier; };]=])
+hs2_patch_file("${midi_file}" m1_old m1_new)
+
 hs2_patch_file("${ext_file}" e1_old e1_new)
 hs2_patch_file("${vst3_file}" v1_old v1_new v2_old v2_new v3_old v3_new v4_old v4_new v5_old v5_new v6_old v6_new
                v7_old v7_new v8_old v8_new)

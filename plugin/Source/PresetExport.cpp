@@ -3,7 +3,17 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <set>
+
+#if JUCE_WINDOWS
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#elif JUCE_MAC
+#include <stdio.h>
+#endif
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -28,6 +38,32 @@ constexpr juce::int64 kAuManufacturer = 0x48733270;  // 'Hs2p'
 constexpr const char* kVendor = "HS2 Port";
 constexpr const char* kPluginName = "HS2 Port";
 constexpr const char* kReceipt = ".hs2port-presets.json";
+constexpr int kReceiptVersion = 1;
+constexpr const char* kStagePrefix = ".hs2port-install-";
+constexpr const char* kCommitMarker = "replacement-started";
+
+auto nativePath(const juce::File& f) {
+#if JUCE_WINDOWS
+    return std::filesystem::path(f.getFullPathName().toWideCharPointer());
+#else
+    return std::filesystem::path(f.getFullPathName().toRawUTF8());
+#endif
+}
+
+bool occupied(const juce::File& file) { return file.exists() || file.isSymbolicLink(); }
+
+bool moveWithoutReplacing(const juce::File& from, const juce::File& to) {
+#if JUCE_WINDOWS
+    return MoveFileExW(from.getFullPathName().toWideCharPointer(), to.getFullPathName().toWideCharPointer(), 0) != 0;
+#elif JUCE_MAC
+    return renamex_np(from.getFullPathName().toRawUTF8(), to.getFullPathName().toRawUTF8(), RENAME_EXCL) == 0;
+#else
+    if (occupied(to)) return false;
+    std::error_code ec;
+    std::filesystem::rename(nativePath(from), nativePath(to), ec);
+    return !ec;
+#endif
+}
 
 juce::String latin1(const std::string& s) {
     juce::String out;
@@ -36,10 +72,14 @@ juce::String latin1(const std::string& s) {
     return out;
 }
 
-juce::String bankTitle(const BankInfo* b) {
-    if (b == nullptr) return {};
-    const auto n = latin1(b->name);
-    return n.length() > 4 && juce::CharacterFunctions::isDigit(n[0]) ? n.substring(4) : n;
+juce::String bankTitle(const PatchRef& ref, const BankInfo* bank) {
+    // Keep three-digit banks after the two-digit run even in a text-only sort.
+    const auto number = (ref.bank >= 100 ? juce::String("Bank ") : juce::String{})
+                      + juce::String(ref.bank).paddedLeft('0', 2);
+    if (bank == nullptr) return number;
+    const auto name = latin1(bank->name);
+    const auto prefix = juce::String(ref.bank).paddedLeft('0', 3) + " ";
+    return number + " " + (name.startsWith(prefix) ? name.substring(prefix.length()) : name);
 }
 
 juce::String safeFileName(const juce::String& name, const juce::String& fallback) {
@@ -172,37 +212,78 @@ juce::var knob(int id, const juce::String& name, const juce::String& section = {
 }
 
 // Komplete Kontrol's knob pages (eight knobs each). Ids are host parameter ids = indices (legacy parameter ids).
-juce::var nksKnobPages(const PatchRef& ref, const hs2::Patch* patch) {
+juce::var nksKnobPages(const PatchRef& ref, const hs2::Patch* patch, const hs2::Combi* combi) {
+    juce::Array<juce::var> pages, page;
+    auto finishPage = [&] {
+        if (!page.isEmpty()) pages.add(juce::var(page));
+        page.clear();
+    };
+    auto add = [&](int id, const juce::String& name, const juce::String& group) {
+        if (page.size() == 8) finishPage();
+        page.add(knob(id, name, page.isEmpty() ? group : juce::String()));
+    };
+    auto mixer = [&](int part, const juce::String& group) {
+        finishPage();
+        add(exposedIndex(part, ppLevel), "Level", group);
+        add(exposedIndex(part, ppPan), "Pan", group);
+        add(exposedIndex(part, ppMute), "Mute", group);
+        for (int s = 0; s < kNumSends; ++s)
+            add(exposedIndex(part, ppSend1 + s), "Send " + juce::String(s + 1), group);
+        if (!ref.combi) add(0, "Master Volume", group);
+    };
+    auto hyperknobs = [&](int part, const hs2::Patch* sound, const juce::String& group) {
+        finishPage();
+        if (sound == nullptr) return;
+        for (int k = 0; k < kNumKnobs; ++k) {
+            const auto name = latin1(sound->quickControls[size_t(k)]).trim();
+            if (name.isNotEmpty()) add(exposedIndex(part, ppKnob1 + k), name, group);
+        }
+    };
     if (ref.combi) {
-        juce::Array<juce::var> p1, p2;
-        for (int part = 0; part < 8; ++part)
-            p1.add(knob(exposedIndex(part, ppLevel), "Part " + juce::String(part + 1), part == 0 ? "Part levels" : ""));
-        for (int part = 8; part < 16; ++part)
-            p2.add(knob(exposedIndex(part, ppLevel), "Part " + juce::String(part + 1), part == 8 ? "Part levels" : ""));
-        return obj({{"ni8", arr({juce::var(p1), juce::var(p2)})}});
+        add(0, "Master Volume", "Combi");
+        finishPage();
+    } else {
+        hyperknobs(0, patch, "Hyperknobs");
+        mixer(0, "Mixer");
     }
-    juce::Array<juce::var> p1, p2;
-    for (int k = 0; k < kNumKnobs; ++k) {
-        juce::String n = patch != nullptr ? latin1(patch->quickControls[size_t(k)]).trim() : juce::String();
-        if (n.isEmpty()) n = "Hyperknob " + juce::String(k + 1);
-        p1.add(knob(exposedIndex(0, ppKnob1 + k), n, k == 0 ? "Hyperknobs" : ""));
+    const int partCount = ref.combi ? kNumParts : 1;
+    for (int part = 0; part < partCount; ++part) {
+        const auto prefix = ref.combi ? "P" + juce::String(part + 1) + " " : juce::String();
+        if (ref.combi) {
+            if (combi == nullptr || !combi->parts[size_t(part)]) continue;
+            hyperknobs(part, &*combi->parts[size_t(part)], prefix + "Hyperknobs");
+            mixer(part, prefix + "Mixer");
+        }
+        auto group = [&](const char* title, std::initializer_list<int> engineIndices) {
+            finishPage();
+            for (int j : engineIndices)
+                for (int e = 0; e < kExtPerPart; ++e)
+                    if (kExtDefs[e].j == j) add(extIndex(part, e), kExtDefs[e].name, prefix + title);
+        };
+        group("Voice", {4, 21, 22, 23, 29, 30, 31, 24});
+        group("Key and Velocity", {15, 16, 17, 18, 19, 20, 27, 28});
+        group("Tuning", {32, 33, 34, 35, 36, 37, 38});
+        group("Arpeggiator", {39, 40, 41, 42, 43, 44, 45, 46});
+        group("Arp and Part", {47});
+        add(partExtraIndex(part, pxTrim), "Trim", prefix + "Arp and Part");
+        add(partExtraIndex(part, pxKeep), "Keep", prefix + "Arp and Part");
+        if (part > 0) add(linkIndex(part), "Link", prefix + "Arp and Part");
     }
-    p1.add(knob(exposedIndex(0, ppLevel), "Level", "Mixer"));
-    p1.add(knob(exposedIndex(0, ppPan), "Pan"));
-    for (int s = 0; s < kNumSends; ++s)
-        p2.add(knob(exposedIndex(0, ppSend1 + s), "Send " + juce::String(s + 1), s == 0 ? "Effect sends" : ""));
-    p2.add(knob(exposedIndex(0, ppLevel), "Level", "Mixer"));
-    p2.add(knob(exposedIndex(0, ppPan), "Pan"));
-    p2.add(knob(exposedIndex(0, ppMute), "Mute"));
-    p2.add(knob(0, "Master"));
-    return obj({{"ni8", arr({juce::var(p1), juce::var(p2)})}});
+    for (int slot = 0; slot < kGfxSlots; ++slot) {
+        finishPage();
+        const auto title = "Global FX " + juce::String(slot + 1);
+        add(gfxIndex(slot, 0), "Mute", title);
+        for (int j = 17; j < kGfxParams; ++j) add(gfxIndex(slot, j), gfxDef(j).name, title);
+    }
+    finishPage();
+    return obj({{"ni8", juce::var(pages)}});
 }
 
-juce::MemoryBlock makeNksPreset(const PatchRef& ref, const hs2::Patch* patch, const BankInfo* bank,
-                                const juce::MemoryBlock& vstPreset) {
-    const juce::String name = latin1(ref.name);
+juce::MemoryBlock makeNksPreset(const PatchRef& ref, const hs2::Patch* patch, const hs2::Combi* combi, const BankInfo* bank,
+                                const juce::MemoryBlock& vstPreset, int patchNumberWidth) {
+    const auto name = juce::String(ref.index + 1).paddedLeft('0', patchNumberWidth) + " " + latin1(ref.name);
     const auto nisi = obj({{"author", patch != nullptr ? latin1(patch->author).trim() : juce::String()},
-                           {"bankchain", arr({juce::String(kPluginName), bankTitle(bank), juce::String()})},
+                           {"bankchain", arr({juce::String(kPluginName), bankTitle(ref, bank), juce::String()})},
                            {"characters", juce::var(juce::Array<juce::var>())},
                            {"comment", patch != nullptr ? latin1(patch->description).trim() : juce::String("Combi")},
                            {"deviceType", "INST"},
@@ -221,7 +302,7 @@ juce::MemoryBlock makeNksPreset(const PatchRef& ref, const hs2::Patch* patch, co
     juce::MemoryOutputStream body;
     body.write("NIKS", 4);
     riffChunk(body, "NISI", nksMsgpack(nisi));
-    riffChunk(body, "NICA", nksMsgpack(nksKnobPages(ref, patch)));
+    riffChunk(body, "NICA", nksMsgpack(nksKnobPages(ref, patch, combi)));
     riffChunk(body, "PLID", nksMsgpack(plid));
     riffChunk(body, "PCHK", pchk.getMemoryBlock());
     juce::MemoryOutputStream o;
@@ -404,50 +485,144 @@ bool writeOgg(const juce::File& file, const juce::AudioBuffer<float>& audio) {
 
 // One output format: its root, the files written this time, and the receipt of the last run.
 struct Target {
+    Target(const juce::File& destination, const char* suffix) : root(destination), extension(suffix) {}
+
     juce::File root;
     juce::String extension;
+    juce::File stage;
     juce::StringArray written;                         // relative paths
+    std::set<juce::String> previous;
+    int previousMapping = 0;
     std::map<juce::String, std::set<juce::String>> used;  // folder -> lower-case file names taken this run
+    juce::File receipt() const { return root.getChildFile(".hs2port-" + extension.substring(1) + "-presets.json"); }
+    juce::String relative(const juce::File& file) const {
+        return file.getRelativePathFrom(root).replaceCharacter('\\', '/');
+    }
+    juce::File staged(const juce::File& file) const { return stage.getChildFile("new/" + relative(file) + ".stage"); }
+
+    bool contains(const juce::File& file) const {
+        std::error_code ec;
+        const auto base = std::filesystem::weakly_canonical(nativePath(root), ec);
+        if (ec) return false;
+        const auto resolved = std::filesystem::weakly_canonical(nativePath(file), ec);
+        if (ec) return false;
+        const auto relative = resolved.lexically_relative(base);
+        return !relative.empty() && !relative.is_absolute() && *relative.begin() != ".." && relative != ".";
+    }
 
     juce::File fileFor(const juce::String& folder, const juce::String& name) {
         auto& taken = used[folder];
         juce::String base = name, candidate = name;
-        for (int n = 2; taken.count(candidate.toLowerCase()) != 0; ++n) candidate = base + " (" + juce::String(n) + ")";
+        const auto available = [&](const juce::String& stem) {
+            const auto rel = folder + "/" + stem + extension;
+            const auto preview = folder + "/.previews/" + stem + extension + ".ogg";
+            const auto free = [&](const juce::String& path) {
+                return previous.contains(path) || !occupied(root.getChildFile(path));
+            };
+            return free(rel) && (extension != ".nksf" || free(preview));
+        };
+        for (int n = 2; taken.count(candidate.toLowerCase()) != 0 ||
+                        !available(candidate); ++n)
+            candidate = base + " (" + juce::String(n) + ")";
         taken.insert(candidate.toLowerCase());
-        const auto rel = folder + "/" + candidate + extension;
-        written.add(rel);
-        return root.getChildFile(rel);
+        return root.getChildFile(folder + "/" + candidate + extension);
     }
 
-    // Removes the files the previous run wrote (only those) and the folders that are left empty.
-    void removePrevious() {
-        const auto receipt = root.getChildFile(kReceipt);
-        if (!receipt.existsAsFile()) return;
-        const auto json = juce::JSON::parse(receipt);
-        if (const auto* files = json["files"].getArray()) {
-            std::set<juce::File> dirs;
-            for (const auto& f : *files) {
-                const auto rel = f.toString();
-                if (rel.isEmpty() || rel.contains("..") || juce::File::isAbsolutePath(rel)) continue;
-                const auto file = root.getChildFile(rel);
-                const bool preview = file.getFileName().endsWithIgnoreCase(extension + ".ogg");  // .previews/x.nksf.ogg
-                if (file.isAChildOf(root) && (file.hasFileExtension(extension) || preview)) {
-                    file.deleteFile();
-                    dirs.insert(file.getParentDirectory());
-                }
-            }
-            for (auto d : dirs)
-                for (; d.isAChildOf(root) && d.isDirectory() && d.getNumberOfChildFiles(juce::File::findFilesAndDirectories) == 0;
-                     d = d.getParentDirectory())
-                    d.deleteFile();
+    bool readPrevious() {
+        auto manifest = receipt();
+        if (!occupied(manifest)) manifest = root.getChildFile(kReceipt);
+        if (!occupied(manifest)) return true;
+        if (!manifest.existsAsFile() || manifest.isSymbolicLink() || !contains(manifest)) return false;
+        const auto json = juce::JSON::parse(manifest);
+        const auto* files = json["files"].getArray();
+        if (json["product"].toString() != kPluginName || int(json["formatVersion"]) != kReceiptVersion || files == nullptr)
+            return false;
+        previousMapping = int(json["mappingRevision"]);
+        for (const auto& f : *files) {
+            const auto rel = f.toString().replaceCharacter('\\', '/');
+            if (rel.isEmpty() || juce::File::isAbsolutePath(rel)) continue;
+            const auto file = root.getChildFile(rel);
+            const bool preview = extension == ".nksf" && file.getFileName().endsWithIgnoreCase(extension + ".ogg")
+                                 && file.getParentDirectory().getFileName() == ".previews";
+            if (relative(file) == rel && file.isAChildOf(root) && (file.hasFileExtension(extension) || preview)
+                && file.existsAsFile() && !file.isSymbolicLink() && contains(file))
+                previous.insert(rel);
         }
+        return true;
     }
 
     bool writeReceipt() const {
         juce::Array<juce::var> files;
         for (const auto& w : written) files.add(w);
-        const auto json = obj({{"product", kPluginName}, {"formatVersion", 1}, {"files", juce::var(files)}});
-        return root.getChildFile(kReceipt).replaceWithText(juce::JSON::toString(json));
+        const auto json = obj({{"product", kPluginName}, {"formatVersion", kReceiptVersion},
+                               {"mappingRevision", kNksMappingRevision}, {"files", juce::var(files)}});
+        return staged(receipt()).replaceWithText(juce::JSON::toString(json));
+    }
+};
+
+struct PresetTransaction {
+    struct Move { juce::File from, to; };
+    std::vector<Move> moved;
+    std::vector<juce::File> stages, createdDirs;
+    bool keepRecovery = false;
+
+    ~PresetTransaction() {
+        if (!keepRecovery)
+            for (const auto& stage : stages) stage.deleteRecursively(false);
+    }
+
+    bool makeLiveDirectory(const juce::File& root, const juce::File& dir) {
+        if (dir == root) return dir.isDirectory();
+        if (!dir.isAChildOf(root) || dir.isSymbolicLink() || !makeLiveDirectory(root, dir.getParentDirectory())) return false;
+        if (dir.isDirectory()) return true;
+        if (!dir.createDirectory()) return false;
+        createdDirs.push_back(dir);
+        return true;
+    }
+
+    bool move(const juce::File& from, const juce::File& to) {
+        moved.push_back({from, to});
+        if (moveWithoutReplacing(from, to)) return true;
+        moved.pop_back();
+        return false;
+    }
+
+    void rollback(juce::StringArray& errors) {
+        for (auto it = moved.rbegin(); it != moved.rend(); ++it)
+            if (!moveWithoutReplacing(it->to, it->from)) {
+                errors.add("Could not restore " + it->from.getFullPathName() + " from " + it->to.getFullPathName());
+                keepRecovery = true;
+            }
+        for (auto it = createdDirs.rbegin(); it != createdDirs.rend(); ++it)
+            if (it->getNumberOfChildFiles(juce::File::findFilesAndDirectories) == 0) it->deleteFile();
+        if (keepRecovery)
+            for (const auto& stage : stages) errors.add("Recovery files retained in " + stage.getFullPathName());
+        else
+            errors.add("Previous preset files restored.");
+    }
+
+    bool install(Target& target, juce::StringArray& errors) {
+        const auto fail = [&](const juce::File& file) {
+            errors.add("Cannot replace presets at " + file.getFullPathName());
+            return false;
+        };
+        const auto save = [&](const juce::File& file) {
+            const auto backup = target.stage.getChildFile("backup/" + target.relative(file) + ".stage");
+            return target.contains(file) && !file.isSymbolicLink() && file.existsAsFile()
+                   && backup.getParentDirectory().createDirectory() && move(file, backup);
+        };
+        for (const auto& rel : target.previous) {
+            const auto file = target.root.getChildFile(rel);
+            if (occupied(file) && !save(file)) return fail(file);
+        }
+        const auto receipt = target.receipt();
+        if (occupied(receipt) && !save(receipt)) return fail(receipt);
+        for (const auto& rel : target.written) {
+            const auto file = target.root.getChildFile(rel);
+            if (!target.contains(file) || !makeLiveDirectory(target.root, file.getParentDirectory())
+                || !move(target.staged(file), file)) return fail(file);
+        }
+        return move(target.staged(receipt), receipt) || fail(receipt);
     }
 };
 
@@ -555,20 +730,68 @@ bool kompleteKontrolInstalled() {
 #endif
 }
 
+bool hasOlderNksPresets(const juce::File& root) {
+    if (!root.isDirectory()) return false;
+    Target nks(root, ".nksf");
+    return nks.readPrevious() && nks.previousMapping < kNksMappingRevision
+           && std::any_of(nks.previous.begin(), nks.previous.end(), [](const auto& path) {
+               return path.endsWithIgnoreCase(".nksf");
+           });
+}
+
 PresetExportResult exportPresets(const PatchLibrary& library, const PresetExportOptions& options,
                                  const std::function<void(int, int)>& progress, const std::atomic<bool>* cancel) {
     PresetExportResult result;
+    static std::mutex exportMutex;
+    const std::unique_lock processLock(exportMutex, std::try_to_lock);
+    juce::InterProcessLock exportLock("HS2PortPresetExport");
+    if (!processLock.owns_lock() || !exportLock.enter(0)) {
+        result.errors.add("Another preset installation is in progress.");
+        return result;
+    }
+    if (!library.errors.empty()) {
+        result.errors.add("The content library could not be read completely: " + juce::String(library.errors.front()));
+        return result;
+    }
+    for (const auto& root : options.requiredExistingRoots) {
+        if (!root.isDirectory()) {
+            result.errors.add("Selected preset folder is unavailable: " + root.getFullPathName());
+            return result;
+        }
+    }
+    PresetTransaction transaction;
     std::vector<Target> targets;
-    if (options.vst3Root != juce::File()) targets.push_back({options.vst3Root, ".vstpreset", {}, {}});
-    if (options.auRoot != juce::File()) targets.push_back({options.auRoot, ".aupreset", {}, {}});
-    if (options.nksRoot != juce::File()) targets.push_back({options.nksRoot, ".nksf", {}, {}});
+    if (options.vst3Root != juce::File()) targets.emplace_back(options.vst3Root, ".vstpreset");
+    if (options.auRoot != juce::File()) targets.emplace_back(options.auRoot, ".aupreset");
+    if (options.nksRoot != juce::File()) targets.emplace_back(options.nksRoot, ".nksf");
     for (auto& t : targets) {
         if (!t.root.createDirectory()) {
             result.errors.add("Cannot create " + t.root.getFullPathName());
             return result;
         }
-        t.removePrevious();
+        for (const auto& dir : t.root.findChildFiles(juce::File::findDirectories, false, juce::String(kStagePrefix) + "*"))
+            if (dir.getChildFile(kCommitMarker).exists()) {
+                result.errors.add("An interrupted installation has recovery files in " + dir.getFullPathName());
+                return result;
+            }
+        if (!t.readPrevious()) {
+            result.errors.add("Cannot read the previous preset receipt in " + t.root.getFullPathName());
+            return result;
+        }
+        // A staging directory inside the destination works for symlinked folders and volume roots too.
+        t.stage = t.root.getChildFile(juce::String(kStagePrefix) + juce::Uuid().toString());
+        if (occupied(t.stage) || !t.stage.getChildFile("new").createDirectory()) {
+            result.errors.add("Cannot stage presets in " + t.root.getFullPathName());
+            return result;
+        }
+        transaction.stages.push_back(t.stage);
     }
+
+    const auto cancelled = [&] { return cancel != nullptr && cancel->load(); };
+
+    std::map<int, int> lastProgram;
+    for (const auto& ref : library.patches)
+        lastProgram[ref.bank] = std::max(lastProgram[ref.bank], ref.index + 1);
 
     std::map<int, std::unique_ptr<hs2::MilanBank>> banks;  // patch banks opened so far (memory-mapped)
     // Previews: the engine's sample cache keeps every sample bank it loads, so a new one is made per patch bank
@@ -587,11 +810,8 @@ PresetExportResult exportPresets(const PatchLibrary& library, const PresetExport
     };
     const int total = int(library.patches.size());
     for (int i = 0; i < total; ++i) {
-        if (cancel != nullptr && cancel->load()) {
-            result.errors.add("Cancelled.");
-            break;
-        }
         if (progress && (i % 50 == 0)) progress(i, total);
+        if (cancelled()) break;
         const auto& ref = library.patches[size_t(i)];
         if (ref.copyProtected && !ref.captured) {
             ++result.skippedProtected;
@@ -599,6 +819,7 @@ PresetExportResult exportPresets(const PatchLibrary& library, const PresetExport
         }
         const auto* bank = library.bank(ref.bank);
         std::unique_ptr<hs2::Patch> patch;
+        std::optional<hs2::Combi> combi;
         if (!ref.combi && bank != nullptr) {
             try {
                 auto& mb = banks[ref.bank];
@@ -624,6 +845,15 @@ PresetExportResult exportPresets(const PatchLibrary& library, const PresetExport
                 continue;
             }
         }
+        if (ref.combi && options.nksRoot != juce::File()) {
+            try {
+                const auto root = std::filesystem::path(options.contentRoot.getFullPathName().toWideCharPointer());
+                combi = hs2::Combi::load(hs2::combiPath(root, ref.bank, ref.index));
+            } catch (const std::exception& ex) {
+                result.errors.add(latin1(ref.name) + ": " + ex.what());
+                continue;
+            }
+        }
         const auto state = patchPresetState(ref);
         const auto vst = makeVstPreset(state);
         const juce::String name = latin1(ref.name);
@@ -632,44 +862,73 @@ PresetExportResult exportPresets(const PatchLibrary& library, const PresetExport
         const auto fileName = safeFileName(name, "Patch " + juce::String(ref.index + 1));
         bool ok = true;
         for (auto& t : targets) {
-            const auto file = t.fileFor(folder, fileName);
-            if (!file.getParentDirectory().createDirectory()) ok = false;
+            const auto live = t.fileFor(folder, fileName);
+            const auto file = t.staged(live);
+            if (!file.getParentDirectory().createDirectory()) {
+                result.errors.add("Cannot stage " + live.getFullPathName());
+                ok = false;
+                break;
+            }
             if (t.extension == ".vstpreset") ok = file.replaceWithData(vst.getData(), vst.getSize()) && ok;
             else if (t.extension == ".aupreset") ok = file.replaceWithText(makeAuPreset(state, name)) && ok;
             else {
-                const auto nks = makeNksPreset(ref, patch.get(), bank, vst);
+                const auto nks = makeNksPreset(ref, patch.get(), combi ? &*combi : nullptr, bank, vst,
+                                               juce::String(lastProgram.at(ref.bank)).length() > 2 ? 3 : 2);
                 ok = file.replaceWithData(nks.getData(), nks.getSize()) && ok;
                 if (ok && options.nksPreviews) {
-                    const auto dir = file.getParentDirectory().getChildFile(".previews");
-                    const auto ogg = dir.getChildFile(file.getFileName() + ".ogg");
+                    const auto dir = live.getParentDirectory().getChildFile(".previews");
+                    const auto ogg = dir.getChildFile(live.getFileName() + ".ogg");
+                    const auto stagedOgg = t.staged(ogg);
                     bool written = false;
                     juce::String why;
                     try {
                         const auto audio = renderPreview(contentFor(ref), ref, patch.get());
-                        written = dir.createDirectory() && writeOgg(ogg, audio);
+                        written = stagedOgg.getParentDirectory().createDirectory() && writeOgg(stagedOgg, audio);
                         if (!written) why = "cannot write " + ogg.getFullPathName();
                     } catch (const std::exception& ex) {
                         why = ex.what();
                     }
                     if (written) {
                         ++result.previews;
-                        t.written.add(ogg.getRelativePathFrom(t.root).replaceCharacter('\\', '/'));
-                    } else if (++result.previewFailures <= 5) {
+                        t.written.add(t.relative(ogg));
+                    } else {
+                        ++result.previewFailures;
                         result.errors.add("No preview for " + name + ": " + why);
+                        ok = false;
+                        break;
                     }
                 }
             }
             if (!ok) {
-                result.errors.add("Cannot write " + file.getFullPathName());
+                result.errors.add("Cannot stage " + live.getFullPathName());
                 break;
             }
+            t.written.add(t.relative(live));
         }
         if (!ok) break;
         ++(ref.combi ? result.combis : result.patches);
     }
-    for (auto& t : targets)
-        if (!t.writeReceipt()) result.errors.add("Cannot write the receipt in " + t.root.getFullPathName());
     if (progress) progress(total, total);
+    if (cancelled()) result.errors.add("Cancelled before replacement.");
+    if (result.errors.isEmpty() && result.patches + result.combis == 0 && !targets.empty())
+        result.errors.add("No loadable presets found; nothing was replaced.");
+    if (result.errors.isEmpty())
+        for (auto& t : targets)
+            if (!t.writeReceipt()) result.errors.add("Cannot stage the receipt in " + t.root.getFullPathName());
+    if (result.errors.isEmpty())
+        for (const auto& stage : transaction.stages)
+            if (!stage.getChildFile(kCommitMarker).create())
+                result.errors.add("Cannot prepare replacement in " + stage.getFullPathName());
+    if (result.errors.isEmpty() && cancelled()) result.errors.add("Cancelled before replacement.");
+    if (result.errors.isEmpty()) {
+        // Once live moves begin, finish or roll back rather than leaving a partially replaced bank.
+        for (auto& t : targets)
+            if (!transaction.install(t, result.errors)) {
+                transaction.rollback(result.errors);
+                break;
+            }
+    }
+    if (!result.errors.isEmpty()) result.patches = result.combis = result.previews = 0;
     return result;
 }
 

@@ -55,7 +55,7 @@ Built on Apple Silicon with Xcode 27; the AU passes `auval`. The engine needs `-
 
 The version comes from `VERSION` in `plugin/CMakeLists.txt`.
 
-**Releases by CI.** `.github/workflows/release.yml` runs both scripts on GitHub Actions. Pushing a tag `v<version>` (it must match `VERSION`) builds the notarized Mac zip, the Windows zips and the Ableton Move Schwung module (`schwung/build.sh`, after its host test) and publishes them as a GitHub release; running the workflow by hand builds them as artifacts only. The Mac signing and notarization secrets are listed at the top of the workflow.
+**Releases by CI.** `.github/workflows/release.yml` runs on version tags or by manual dispatch, not on ordinary branch pushes. Pushing a tag `v<version>` (it must match `VERSION`) builds and publishes the notarized Mac zip, both Windows zips, and both Ableton Move modules: the Hypersonic 2 sound generator and HS2 MIDI Player. A manual run builds the same targets as artifacts without publishing a release. The Mac signing and notarization secrets are listed at the top of the workflow.
 
 ## Content
 
@@ -67,6 +67,10 @@ The plugin reads the user's own Hypersonic 2 Content folder; nothing from it is 
 The folder choice and the piano memory mode are saved in the user settings file `HS2Port/HS2Port.settings` and shared by all instances.
 
 ## Presets (DAW preset browsers and Komplete Kontrol)
+
+Komplete Kontrol banks carry their original numbers, with two digits below 100 (for example `00 HS1 Preview Patches` and `30 Accordions + Harmonicas`). Three-digit banks use a label such as `Bank 120 Combis` so they sort after the two-digit banks. Preset names show their one-based position within the bank, padded to two digits or three when needed. Preset filenames and DAW names are unchanged.
+
+In Preferences > General, choose separate VST3 and Komplete Kontrol preset folders with Browse. Use Default restores the standard path for that format. The confirmation lists the exact folders before writing. Add a custom NKS location to Komplete Kontrol's User library and rescan. Changing the destination does not move or delete presets in the previous location. On Mac, Audio Unit presets keep their standard folder.
 
 "Install presets..." in Settings writes a preset file for every patch and combi of the content folder, so they can be chosen from the DAW's preset browser and from Komplete Kontrol. The files hold only the patch reference (bank, number and name); the sound still comes from the content folder. Copy-protected patches without a capture are left out.
 
@@ -81,15 +85,20 @@ The 63 copy-protected factory patches load from captures in `<content>\Captures\
 - Komplete Kontrol presets are written only when Komplete Kontrol is installed (Windows: its registry entry or `C:\Program Files\Native Instruments\Komplete Kontrol`; Mac: the app in `/Applications`).
 - Folders: `Patches/<bank>/` and `Combis/<bank>/`.
 - A patch preset loads the patch into part 1 and empties the other parts; a combi preset loads the combi. The Settings choices, the selected part and the master volume stay as they are.
-- Running it again replaces only the files it wrote before (a `.hs2port-presets.json` receipt lists them); presets saved there by hand are kept.
-- Komplete Kontrol: the presets appear in the browser under User, with the bank as the bank name, a sound type per bank (for example Synth Lead for Soft Leads) and the patch's author and description. Knob page 1 holds the patch's six Hyperknobs (with the patch's own names), Level and Pan; page 2 the four effect sends, Level, Pan, Mute and Master. Combis: the part levels (parts 1 to 8, then 9 to 16). Each preset has a sound preview (`.previews/<name>.nksf.ogg`, about 4 seconds, Ogg Vorbis): the engine plays a short phrase that suits the sound type (a chord phrase, a bass line, a drum groove, a percussion run, or one held key for loops and effects); a patch that stays silent with it gets a phrase on the keys that do sound. Writing the previews takes about three minutes for the factory content. Komplete Kontrol 3 on Mac hosts VST3 only: it loads the presets once it has scanned `HS2 Port.vst3`, so if HS2 Port is new to Komplete Kontrol, rescan the plug-ins first (Preferences, Plug-ins).
+- On launch, the standalone offers a one-time upgrade when Komplete Kontrol and an older bank installed by HS2 Port are found. It explains the new mappings and bank order. Choose Later to skip, or run Install presets from Preferences at any time.
+- Reinstalling replaces only files listed in the installer's receipts (`.hs2port-*-presets.json`, or the older `.hs2port-presets.json`). Presets saved by hand are kept. New files and previews are staged on the destination drive first. Choose Cancel preset installation in Preferences, or close the app during generation, to discard that work; the next attempt starts over. Once replacement starts, the app finishes it or restores the previous files on error. If interrupted during replacement and recovery files remain, the installer reports their location instead of overwriting them.
+- Komplete Kontrol: the presets appear under User, with bank names, sound types, and patch descriptions. Single patches group the named Hyperknobs, mixer, voice, key and velocity, tuning, arpeggiator, and global FX routing. Combis include controls for populated parts. The engine renders a short, sound-appropriate Ogg preview for each preset. Komplete Kontrol 3 on Mac requires the VST3; rescan plug-ins first if HS2 Port is new to Komplete Kontrol.
 - `hs2presets --content <folder> [--vst3 DIR] [--au DIR] [--nks DIR] [--defaults] [--no-previews]` (built with the plugin) writes the same files from the command line; `--no-previews` leaves out the Komplete Kontrol previews.
 
 Host parameter ids are the parameter numbers (JUCE legacy parameter ids, since 0.3.0), which the Komplete Kontrol knob pages refer to. Automation or MIDI-learn assignments made with an earlier version may need to be assigned again; the plugin's saved setups are not affected.
 
 ## Using it with a screen reader
 
-When the window opens, focus is in the search box. Tab and Shift+Tab move through the controls in this order (Tab wraps around, so the Part section comes after Status):
+When the window opens, focus goes to the Part selector. Tab and Shift+Tab move through the visible controls. Ctrl+F takes you directly to search. Ctrl+I opens the larger Patch information page and focuses its read-only text; use the arrows, Home/End or Page Up/Down to review it.
+
+The current-sound button steps through sounds with Up/Down, jumps ten with Page Up/Down and opens the browser with Enter. Choice controls use the same stepping keys; Enter opens their menus. Sliders use Enter to edit their value: engine parameters take a normalized decimal from 0 to 1, while Octave and Velocity take their displayed values. Escape cancels the edit.
+
+The standalone Musical Keyboard toggles with Ctrl+K (Command+K on Mac). It plays the selected part using the Canvas layout through apostrophe (upper F), with Z/X for octave and C/V for velocity. Search and direct entry pause typing and release held notes. The instrument plug-in still uses the host's MIDI input.
 
 1. **Part:**
    - Part selector. Each entry names its patch, for example "Part 3: Soft Rubber Bass" or "Part 4: empty". The patch browser, Current patch, Hyperknobs and Part mixer work on the selected part.
@@ -98,16 +107,23 @@ When the window opens, focus is in the search box. Tab and Shift+Tab move throug
 2. **Patch browser:**
    - Search box. It searches patch, combi and bank names.
    - Bank filter. The combi banks ("120 Combis", "121 User Combis") hold combis.
+   - Current sound. Up and Down step through patches; Page Up and Page Down jump ten. This is the Tab stop immediately before the type-to-select patch list.
    - Patch list. Its name includes how many patches are shown, for example "Patches, 3 shown". Combis end in "(combi)".
-   - Load selected patch, Previous patch, Next patch.
+   - Load selected patch, Previous patch, Next patch. Ctrl+Page Up and Ctrl+Page Down change patches without moving focus to the list. On Windows, Alt+W focuses Current sound. The list keeps its own type-to-select keys when the musical keyboard is on.
    - "Load patch when selected in the list". When this is on, moving through the list loads each patch into the selected part, so you can play it straight away. Moving onto a combi loads the whole combi.
 3. **Current patch:** a read-only text box with the selected part's patch: name, bank, description, controller notes (what the mod wheel and aftertouch do), the Hyperknob names, the author, unsupported features, and the loaded combi.
 4. **Part N Hyperknobs:** six sliders named after the patch's own knobs, for example "Hyperknob 4: Thump". Values are percentages.
 5. **Part N mixer:** Mute, Level, Pan, Effect send 1 to 4. Level and sends read as a percentage and in dB.
 6. **Master:** master volume in dB (all parts).
-7. **Settings:** content folder, "Choose content folder...", piano memory mode (ECO, MID or XXL), "Load patches and combis from MIDI program changes", "Let effect tails ring out", "Stop the old sound when a part's patch changes", "Install presets..." (see Presets), "All notes off" (stops every sounding note on all parts), "Rescan content folder" (reads the patch banks, combis, tunings and effect presets again), "Audio and MIDI settings..." (standalone app only), Keyboard help.
-   - **Audio and MIDI settings** (standalone app): a window with Audio driver (ASIO on Windows when built with the ASIO SDK, Windows Audio, DirectSound; Core Audio on Mac), Output device, Sample rate, Buffer size (with its length in milliseconds), Refresh devices, Driver control panel (the ASIO driver's own settings), one "MIDI input: name" check box per MIDI input, a read-only Audio status box (device, rate, buffer, latency, errors) and Close. Changes apply at once and are saved; Escape closes the window.
-8. **Status:** a read-only text box with loading progress, errors, and features of the loaded patches that the port does not support yet.
+7. **Status:** a read-only text box with loading progress, errors, and features of the loaded patches that the port does not support yet. Use Alt+S on Windows or Control+S on Mac to focus it, then arrows or Page Up/Down to read it.
+
+**Preferences** (Ctrl+comma or Command+comma) opens inside the editor. General contains content, playback options, and preset export. In the standalone, the Audio and MIDI tab contains driver, output, sample rate, buffer size, MIDI inputs, and audio status. Escape returns to the instrument. F1 opens reviewable help in the editor, and F9 sends All Notes Off.
+
+In the Windows standalone, use the native window controls to minimize or choose **Hide to tray** (Ctrl+H) to keep playback available without a taskbar window. Use the notification icon or launch the app again to restore it. Shift+F1 checks GitHub and can open the releases page; it does not download or install an update.
+
+The Mac standalone exposes a virtual MIDI destination called **HS2 Port** while it is running. Turn it off in Preferences > Audio and MIDI if you don't need it. Command+Shift+H hides the window to the menu bar without stopping playback. Use **Show Controls** from the HS2 Port menu-bar item or reopen the app from Applications.
+
+Existing automation IDs and preset identities are unchanged. Detailed patch-element edits are available in the editor rather than as NKS automation.
 
 ### Pages
 
@@ -178,6 +194,8 @@ In REAPER, turn on "Send all keyboard input to plug-in" in the FX window, so tha
   - 48 kHz with 512-frame blocks
   - a Hyperknob and a part level moved by the host, also after a state round trip
 - **`tests/edit_checks.py`:** the patch editor's edits and the global settings through `hs2plughost` (`--state-edit`, `--state-attr`): muting every element silences the patch, an element's Octave changes it, edits and settings come back identically from the saved state, the global settings at their defaults leave the output unchanged, and Keep Settings / Level Trim are host parameters. `HS2_BUILD` names the build folder (default `build_plugin`).
+- **`hs2_preset_transaction`:** pass a new, disposable folder to check cancellation, rollback, legacy receipts, and preservation of user presets. Windows also tests rollback with an open file blocking replacement.
+- **`tests/preset_destinations.py`:** pass the `hs2presets` executable, a Hypersonic 2 content folder and a scratch directory to exercise a full export and reinstall across the three formats. **`tests/verify_nks_mapping.py`** checks the resulting bank order, mappings and embedded VST3 states; `--ffmpeg` also checks previews.
 - **`tests/keyboard_walk.ps1`:** opens the standalone app for about half a minute and checks its keyboard behaviour through UI Automation, which is what screen readers read:
   - where focus lands at start
   - the Tab order

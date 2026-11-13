@@ -34,6 +34,7 @@ struct PresetExportOptions {
     // Komplete Kontrol previews: each .nksf gets .previews/<file name>.nksf.ogg, a few seconds of the patch rendered
     // by the engine (a phrase that suits its sound type), as the browser plays them.
     bool nksPreviews = true;
+    std::vector<juce::File> requiredExistingRoots;  // custom folders, possibly on disconnected drives
 };
 
 struct PresetExportResult {
@@ -43,8 +44,12 @@ struct PresetExportResult {
     juce::StringArray errors;
 };
 
+// Bump when a change to the generated NKS mapping warrants offering regeneration.
+inline constexpr int kNksMappingRevision = 1;
+bool hasOlderNksPresets(const juce::File& root);
+
 // Writes the presets for every loadable patch and combi in `library`. `progress(done, total)` is called now and then;
-// `cancel` stops it between presets. Not for the audio thread.
+// `cancel` stops generation between presets, before any live file is replaced. Not for the audio thread.
 PresetExportResult exportPresets(const PatchLibrary& library, const PresetExportOptions& options,
                                  const std::function<void(int, int)>& progress = {},
                                  const std::atomic<bool>* cancel = nullptr);
