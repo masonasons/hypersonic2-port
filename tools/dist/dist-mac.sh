@@ -142,12 +142,18 @@ component() {  # id, bundle, install location
     local root="$WORK/root-$1" plist="$WORK/$1.plist"
     mkdir -p "$root"
     ditto "$STAGE/$2" "$root/$2"
-    pkgbuild --analyze --root "$root" "$plist"
-    # --analyze leaves the key out for some bundles (a .vst3), so add it when Set finds nothing.
-    /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$plist" 2>/dev/null ||
-        /usr/libexec/PlistBuddy -c "Add :0:BundleIsRelocatable bool false" "$plist"
-    pkgbuild --root "$root" --component-plist "$plist" --identifier "com.hs2port.HS2Port.$1" --version "$VERSION" \
-        --install-location "$3" "$WORK/$1.pkg"
+    # No bundle components (an empty list): the VST3, AU and app share one bundle id (JUCE's BUNDLE_ID), and
+    # Installer matches bundles by id, so its version check took the VST3 just installed (or any copy elsewhere) for
+    # the AU already being there and skipped it. As plain files, each part always goes to its own folder.
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+        '<plist version="1.0"><array/></plist>' > "$plist"
+    # Replace the bundle as a whole, so files an older version had and this one does not are not left behind.
+    rm -rf "$WORK/scripts-$1"; mkdir -p "$WORK/scripts-$1"
+    printf '#!/bin/sh\nrm -rf "$2/%s"\nexit 0\n' "$2" > "$WORK/scripts-$1/preinstall"
+    chmod 755 "$WORK/scripts-$1/preinstall"
+    pkgbuild --root "$root" --component-plist "$plist" --scripts "$WORK/scripts-$1" \
+        --identifier "com.hs2port.HS2Port.$1" --version "$VERSION" --install-location "$3" "$WORK/$1.pkg"
 }
 component vst3 "HS2 Port.vst3" "/Library/Audio/Plug-Ins/VST3"
 component au "HS2 Port.component" "/Library/Audio/Plug-Ins/Components"
