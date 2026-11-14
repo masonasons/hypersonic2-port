@@ -60,7 +60,7 @@ Installers:
 
 The version comes from `VERSION` in `plugin/CMakeLists.txt`.
 
-**Releases by CI.** `.github/workflows/release.yml` runs on version tags or by manual dispatch, not on ordinary branch pushes. Pushing a tag `v<version>` (it must match `VERSION`) builds and publishes the notarized Mac zip, both Windows zips, and both Ableton Move modules: the Hypersonic 2 sound generator and HS2 MIDI Player. A manual run builds the same targets as artifacts without publishing a release. The Mac signing and notarization secrets are listed at the top of the workflow.
+**Releases by CI.** `.github/workflows/release.yml` runs on version tags or by manual dispatch, not on ordinary branch pushes. Pushing a tag `v<version>` (it must match `VERSION`) builds everything and publishes the installers (the notarized Mac .pkg and the Windows setup) and both Ableton Move modules: the Hypersonic 2 sound generator and HS2 MIDI Player. The Mac and Windows zips are built too (the Windows setup is made from them) but kept as workflow artifacts, not published. A manual run builds the same targets as artifacts without publishing a release. The Mac signing and notarization secrets are listed at the top of the workflow.
 
 ## Content
 

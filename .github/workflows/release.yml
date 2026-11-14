@@ -2,8 +2,9 @@ name: Release
 
 # Builds the plugin for Mac (VST3, AU, Standalone; universal, Developer ID signed and notarized) and Windows (VST3,
 # Standalone) with tools/dist/, and the Schwung module and HS2 MIDI Player for Ableton Move with schwung/build.sh and
-# hs2-midi-player/build.sh. A tag v<version>
-# (for example v0.3.2) publishes them all as a GitHub release; the tag must match VERSION in plugin/CMakeLists.txt.
+# hs2-midi-player/build.sh. A tag v<version> (for example v0.3.2) publishes the installers (Mac .pkg, Windows setup)
+# and the Move modules as a GitHub release, the zips staying workflow artifacts; the tag must match VERSION in
+# plugin/CMakeLists.txt.
 # Run by hand (Actions, Release, Run workflow) it builds the packages as workflow artifacts without releasing anything.
 #
 # Repository secrets for the Mac build:
@@ -312,17 +313,14 @@ jobs:
           - **Windows 7 to 11:** HS2-Port-$VERSION-Windows-Setup.exe: VST3 and Standalone (64-bit). It installs the build that suits your Windows: the normal one on Windows 10 and 11, the older-Windows build on 7, 8 and 8.1.
           - **Mac:** HS2-Port-$VERSION-Mac.pkg: VST3, AU and Standalone app for all users (macOS 12 or later, Apple Silicon and Intel; signed and notarized). Customize leaves any of them out.
 
-          The same as zips, to copy by hand:
-          - **Mac:** HS2-Port-$VERSION-Mac.zip: VST3, AU and Standalone app (macOS 12 or later, Apple Silicon and Intel; signed and notarized).
-          - **Windows 10 and 11:** HS2-Port-$VERSION-Windows.zip: VST3 and Standalone (64-bit).
-          - **Windows 7, 8 and 8.1:** HS2-Port-$VERSION-Windows7.zip: the same plugin built for older Windows (64-bit).
-
           For Ableton Move:
           - **Ableton Move:** hypersonic2-module.tar.gz: the Schwung module (four parts, screen reader); see schwung/README.md in the source.
           - **Ableton Move:** hs2-midi-player-module.tar.gz: HS2 MIDI Player, a Schwung tool playing MIDI files on 16 parts; see hs2-midi-player/README.md in the source.
 
-          Each zip has an Install.txt. The plugin needs your own Hypersonic 2 content folder.
+          The plugin needs your own Hypersonic 2 content folder.
           EOF
-          gh release create "$GITHUB_REF_NAME" artifacts/*.exe artifacts/*.pkg artifacts/*.zip artifacts/*.tar.gz \
+          # Only the installers and the Move modules: the zips stay workflow artifacts (the Windows setup is made from
+          # them, and the Mac zip is what is notarized).
+          gh release create "$GITHUB_REF_NAME" artifacts/*.exe artifacts/*.pkg artifacts/*.tar.gz \
             --repo "$GITHUB_REPOSITORY" \
             --title "HS2 Port $VERSION" --notes-file notes.md --generate-notes
