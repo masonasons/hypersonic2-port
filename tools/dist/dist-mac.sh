@@ -143,7 +143,9 @@ component() {  # id, bundle, install location
     mkdir -p "$root"
     ditto "$STAGE/$2" "$root/$2"
     pkgbuild --analyze --root "$root" "$plist"
-    /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$plist"
+    # --analyze leaves the key out for some bundles (a .vst3), so add it when Set finds nothing.
+    /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$plist" 2>/dev/null ||
+        /usr/libexec/PlistBuddy -c "Add :0:BundleIsRelocatable bool false" "$plist"
     pkgbuild --root "$root" --component-plist "$plist" --identifier "com.hs2port.HS2Port.$1" --version "$VERSION" \
         --install-location "$3" "$WORK/$1.pkg"
 }
