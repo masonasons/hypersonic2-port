@@ -1,7 +1,5 @@
-# Patches the build's own copy of JUCE 9.0.5 or 7.0.12 (FetchContent PATCH_COMMAND; the working directory is the JUCE
-# source folder). Never touches a local JUCE checkout: FetchContent clones it first. The patched texts are the same
-# in both versions; only the extensions header moved (JUCE 7: juce_audio_processors/utilities). JUCE 7 also gets
-# the combo box accessible-name fix (below).
+# Patches the build's own copy of JUCE 9.0.5 (FetchContent PATCH_COMMAND; the working directory is the JUCE source
+# folder). Never touches a local JUCE checkout: FetchContent clones it first.
 #
 # What it adds: MIDI program changes per MIDI channel in the VST3 plugin. VST3 has no MIDI program change event; a
 # host maps a program change on MIDI channel c to the program change parameter of the unit that
@@ -13,9 +11,6 @@
 cmake_minimum_required(VERSION 3.22)
 
 set(ext_file "modules/juce_audio_processors_headless/utilities/juce_VST3ClientExtensions.h")
-if(NOT EXISTS "${ext_file}")
-    set(ext_file "modules/juce_audio_processors/utilities/juce_VST3ClientExtensions.h")  # JUCE 7
-endif()
 set(vst3_file "modules/juce_audio_plugin_client/juce_audio_plugin_client_VST3.cpp")
 
 function(hs2_patch_file file)
@@ -33,7 +28,7 @@ function(hs2_patch_file file)
         list(GET ARGN ${j} new_var)
         string(FIND "${content}" "${${old_var}}" pos)
         if(pos EQUAL -1)
-            message(FATAL_ERROR "HS2 JUCE patch: text not found in ${file} (${old_var}); is this JUCE 9.0.5 or 7.0.12?")
+            message(FATAL_ERROR "HS2 JUCE patch: text not found in ${file} (${old_var}); is this JUCE 9.0.5?")
         endif()
         string(REPLACE "${${old_var}}" "${${new_var}}" content "${content}")
         math(EXPR i "${i} + 2")
@@ -226,20 +221,6 @@ set(v8_new [=[                    parameters.addParameter (new ProgramChangePara
                     for (int ch = 0; ch < 16; ++ch)
                         parameters.addParameter (new ChannelProgramParameter (*ext, ch));
 ]=])
-
-# ---- JUCE 7 only (the Windows 7 build): a combo box's accessible name is its title, as in JUCE 8 and 9. JUCE 7 uses
-# the shown text, so a screen reader reads "1, combo box, 1" instead of "Output, combo box, 1". (Combo boxes without
-# a title keep the text.)
-set(combo_file "modules/juce_gui_basics/widgets/juce_ComboBox.cpp")
-set(c1_old [=[    String getTitle() const override  { return comboBox.getText(); }]=])
-set(c1_new [=[    // HS2 patch: the title (JUCE 8 and later), else the text
-    String getTitle() const override  { return comboBox.getTitle().isNotEmpty() ? comboBox.getTitle() : comboBox.getText(); }]=])
-file(READ "${combo_file}" combo_content)
-string(REPLACE "\r\n" "\n" combo_content "${combo_content}")
-string(FIND "${combo_content}" "${c1_old}" combo_pos)
-if(NOT combo_pos EQUAL -1)
-    hs2_patch_file("${combo_file}" c1_old c1_new)
-endif()
 
 # ---- Windows UI Automation: keep shortcuts separate from the accessible name and help.
 set(uia_file "modules/juce_gui_basics/native/accessibility/juce_AccessibilityElement_windows.cpp")

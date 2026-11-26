@@ -15,8 +15,8 @@ name: Release
 #   MAC_INSTALLER_P12_B64, MAC_INSTALLER_PASSWORD   the "Developer ID Installer" certificate (.p12 base64, password)
 #                       that signs the .pkg installer
 # Without them a hand-run build is signed ad hoc and not notarized (and makes no .pkg); a tag build stops instead.
-# Windows builds are not code signed (no certificate). The Windows installer (tools/dist/installer-windows.iss) packs
-# the Windows and Windows7 builds into one setup that installs the one that suits the computer.
+# Windows builds are not code signed (no certificate). The one Windows build runs on Windows 7 SP1 to 11 (YY-Thunks,
+# HS2_WIN7 in plugin/CMakeLists.txt); the installer (tools/dist/installer-windows.iss) packs it into a setup.
 
 on:
   push:
@@ -161,7 +161,9 @@ jobs:
           key: build-windows-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-windows.ps1') }}-${{ github.run_id }}
           restore-keys: build-windows-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-windows.ps1') }}-
 
-      - name: Build and zip
+      # One build for Windows 7 SP1 to 11 (YY-Thunks, HS2_WIN7); the script fails when a binary imports anything
+      # Windows 7 does not have (tools\dist\check_win7.ps1).
+      - name: Build, check and zip
         shell: pwsh
         run: tools\dist\dist-windows.ps1
 
@@ -171,36 +173,10 @@ jobs:
           path: dist/HS2-Port-${{ needs.version.outputs.version }}-Windows.zip
           if-no-files-found: error
 
-  # Windows 7, 8 and 8.1: the plugin against JUCE 7.0.12 (JUCE 9 needs Windows 10), C++ runtime linked in; the dist
-  # script fails when the build imports anything newer than Windows 7.
-  windows7:
-    needs: version
-    runs-on: windows-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Cache the build folder
-        uses: actions/cache@v4
-        with:
-          path: build_dist_win7
-          key: build-windows7-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-windows.ps1') }}-${{ github.run_id }}
-          restore-keys: build-windows7-${{ hashFiles('CMakeLists.txt', 'plugin/juce_patch/**', 'tools/dist/dist-windows.ps1') }}-
-
-      - name: Build, check and zip
-        shell: pwsh
-        run: tools\dist\dist-windows.ps1 -Windows7
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: HS2-Port-${{ needs.version.outputs.version }}-Windows7
-          path: dist/HS2-Port-${{ needs.version.outputs.version }}-Windows7.zip
-          if-no-files-found: error
-
-  # One setup for Windows 7 to 11: both builds' zips, unpacked into dist\ as dist-windows.ps1 leaves them, packed by
+  # The setup for Windows 7 SP1 to 11: the build's zip, unpacked into dist\ as dist-windows.ps1 leaves it, packed by
   # Inno Setup 6 (pinned: its setups run on Windows 7; Inno Setup 7 does not say whether its own still do).
   windows-installer:
-    needs: [version, windows, windows7]
+    needs: [version, windows]
     runs-on: windows-latest
     timeout-minutes: 30
     env:
@@ -213,17 +189,10 @@ jobs:
         with:
           name: HS2-Port-${{ needs.version.outputs.version }}-Windows
           path: dist
-      - uses: actions/download-artifact@v4
-        with:
-          name: HS2-Port-${{ needs.version.outputs.version }}-Windows7
-          path: dist
-
-      - name: Unpack both builds
+      - name: Unpack the build
         shell: pwsh
         run: |
-          foreach ($n in "Windows", "Windows7") {
-            Expand-Archive "dist\HS2-Port-$env:VERSION-$n.zip" -DestinationPath dist
-          }
+          Expand-Archive "dist\HS2-Port-$env:VERSION-Windows.zip" -DestinationPath dist
           Get-ChildItem dist
 
       - name: Install Inno Setup 6
@@ -291,7 +260,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [version, mac, windows, windows7, windows-installer, schwung, midi-player]
+    needs: [version, mac, windows, windows-installer, schwung, midi-player]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
@@ -310,7 +279,7 @@ jobs:
           HS2 Port $VERSION
 
           Installers:
-          - **Windows 7 to 11:** HS2-Port-$VERSION-Windows-Setup.exe: VST3 and Standalone (64-bit). It installs the build that suits your Windows: the normal one on Windows 10 and 11, the older-Windows build on 7, 8 and 8.1.
+          - **Windows 7 SP1 to 11:** HS2-Port-$VERSION-Windows-Setup.exe: VST3 and Standalone (64-bit).
           - **Mac:** HS2-Port-$VERSION-Mac.pkg: VST3, AU and Standalone app for all users (macOS 12 or later, Apple Silicon and Intel; signed and notarized). Customize leaves any of them out.
 
           For Ableton Move:

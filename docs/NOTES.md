@@ -1193,3 +1193,24 @@ parts and the global send FX. Details for users: `plugin/README.md`.
     the content's sample banks). The captures are personal-use data like the content: never bundled or committed.
     Checked: compare_with_hs2render.py now includes 8/30, 17/25 and 33/42 (program change and state restore,
     bit-identical); all 63 captured patches parse and render through the port without warnings.
+
+- **One Windows build for Windows 7 SP1 to 11 (2026-11-26), replacing the JUCE 7 build.** As in the user's TS Reborn
+  (its DECISION A141): JUCE 9 stays, and YY-Thunks 1.2.3 (MIT; `YY_Thunks_for_Win7.obj`, downloaded at configure,
+  pinned by SHA-256) plus `plugin/Source/Win7Compat.cpp` are linked into the VST3, the Standalone and hs2plughost as
+  objects ahead of the import libraries (CMake `HS2_WIN7`, on with MSVC). Each stand-in calls the real function where
+  Windows has it. Win7Compat covers what YY-Thunks lacks: `UiaDisconnectProvider` and `SetThreadDpiAwarenessContext`
+  (as TS Reborn), and, new with JUCE 9, `CM_Register_Notification` / `CM_Unregister_Notification` (cfgmgr32, Windows
+  8: JUCE's MIDI device change notifications; JUCE keeps a registration only on CR_SUCCESS, so on Windows 7 the stand-in
+  returns CR_CALL_NOT_IMPLEMENTED and a MIDI device plugged in later is noticed only when the list is read again). The
+  dist script links the C++ runtime in (`CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded`) and runs
+  `tools/dist/check_win7.ps1` (TS Reborn's), which compares each binary's imports with Windows 7's own export lists
+  (YY-Thunks' `Config/x64/6.1.7600.txt`) and replaces check_win7_imports.py. Gone with the JUCE 7 build: HS2_JUCE7,
+  the JUCE 7 parts of juce_patch (the combo box title fix JUCE 8 has anyway), the `#if JUCE_MAJOR_VERSION >= 8`
+  branches, the Windows7 zip and CI job, and the installer's version detection (one setup, MinVersion 6.1 SP1).
+  Checked: check_win7.ps1 before Win7Compat's cfgmgr32 stand-ins found only those two missing; after, all imports exist
+  on Windows 7 (Standalone 384, VST3 373, hs2plughost 290). On the user's Windows 7 Ultimate SP1 x64 VM (libvirt
+  `win7` on the Galaxybook, files pushed through the QEMU guest agent, run as SYSTEM without a desktop), hs2plughost
+  loaded the release VST3 and rendered 80/0, 81/5 and 83/0 (content without samples) byte-identical to the same
+  renders on Windows 11 (peaks 0.088 / 0.104 / 0.121), with the editor made and painted (1080 x 690); the Standalone
+  started and was still running after 15 s. Not checked: the windows on a Windows 7 desktop, a screen reader there,
+  sample-based patches, ASIO or audio devices, MIDI input.

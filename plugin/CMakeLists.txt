@@ -86,6 +86,28 @@ if(WIN32)
   endif()
 endif()
 
+# Windows 7 SP1: one build for Windows 7 to 11, as in the user's TS Reborn. JUCE 9 and the MSVC runtime call some
+# Windows 8 and 10 functions (CreateFile2, per-window DPI, DirectComposition, MIDI device notifications...); YY-Thunks (MIT, https://github.com/Chuyu-Team/YY-Thunks) stands in for them, calling the
+# real function wherever Windows has it, and Source/Win7Compat.cpp covers the ones it lacks. Both are objects on each
+# shipped binary's link line, ahead of the system's import libraries. tools\dist\check_win7.ps1 checks a built
+# binary's imports against Windows 7's own export lists (YY-Thunks' Config\x64\6.1.7600.txt). -DHS2_WIN7=OFF leaves
+# them out. The dist script also links the C++ runtime in, so Windows 7 needs no Visual C++ redistributable.
+if(WIN32 AND MSVC)
+  option(HS2_WIN7 "Link YY-Thunks so the Windows builds run on Windows 7 SP1" ON)
+  if(HS2_WIN7)
+    include(FetchContent)
+    FetchContent_Declare(yythunks
+      URL https://github.com/Chuyu-Team/YY-Thunks/releases/download/v1.2.3/YY-Thunks-Objs.zip
+      URL_HASH SHA256=4DC68EC8784E0AFED7284E4393AEC672873608161C3A5AE52FAF618875D95B81)
+    FetchContent_MakeAvailable(yythunks)  # objects only: download and unpack
+    set(hs2_win7_objs "${yythunks_SOURCE_DIR}/objs/x64/YY_Thunks_for_Win7.obj"
+      "${CMAKE_CURRENT_SOURCE_DIR}/Source/Win7Compat.cpp")
+    # On each binary, not the shared static library: an object on the link line wins over the import libraries.
+    target_sources(HS2Port_Standalone PRIVATE ${hs2_win7_objs})
+    target_sources(HS2Port_VST3 PRIVATE ${hs2_win7_objs})
+  endif()
+endif()
+
 target_link_libraries(HS2Port
     PRIVATE
         hs2core
@@ -105,6 +127,9 @@ target_compile_definitions(hs2plughost PRIVATE
 target_link_libraries(hs2plughost PRIVATE
     juce::juce_audio_processors
     juce::juce_recommended_config_flags)
+if(hs2_win7_objs)
+  target_sources(hs2plughost PRIVATE ${hs2_win7_objs})  # so it can load the VST3 on Windows 7 too
+endif()
 
 # hs2presets: writes the preset files (PresetExport) without the plugin; for tests and scripts.
 #   hs2presets --content "C:/Hypersonic 2 Content" [--vst3 DIR] [--au DIR] [--nks DIR] [--no-previews]

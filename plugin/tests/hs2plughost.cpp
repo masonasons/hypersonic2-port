@@ -96,14 +96,10 @@ bool setStateAttribute(juce::MemoryBlock& state, const juce::String& name, const
     return editState(state, [&](juce::XmlElement& x) { x.setAttribute(name, value); });
 }
 
-// A .vstpreset through the VST3 host's preset reader (JUCE 9: the instance's VST3 client; JUCE 7: VST3PluginFormat).
+// A .vstpreset through the VST3 host's preset reader (the instance's VST3 client).
 bool setVst3Preset(juce::AudioPluginInstance& plugin, const juce::MemoryBlock& mb) {
-#if JUCE_MAJOR_VERSION >= 8
     auto* client = plugin.getVST3Client();
     return client != nullptr && client->setPreset(mb);
-#else
-    return juce::VST3PluginFormat::setStateFromVSTPresetFile(&plugin, mb);
-#endif
 }
 
 void writeWav(const juce::File& f, const std::vector<float>& lr, int sr) {
@@ -168,11 +164,7 @@ int main(int argc, char* argv[]) {
     }
 
     juce::AudioPluginFormatManager fm;
-#if JUCE_MAJOR_VERSION >= 8
     fm.addFormat(std::make_unique<juce::VST3PluginFormat>());
-#else
-    fm.addFormat(new juce::VST3PluginFormat());
-#endif
     juce::OwnedArray<juce::PluginDescription> types;
     juce::KnownPluginList list;
     for (auto* format : fm.getFormats()) list.scanAndAddFile(pluginPath, true, types, *format);
@@ -420,6 +412,18 @@ int main(int argc, char* argv[]) {
         juce::MemoryBlock mb;
         plugin->getStateInformation(mb);
         juce::File(stateOut).replaceWithData(mb.getData(), mb.getSize());
+    }
+    if (args.contains("--editor")) {  // the plugin's editor made, laid out and painted offscreen (a Windows 7 check)
+        std::unique_ptr<juce::AudioProcessorEditor> editor(plugin->createEditorIfNeeded());
+        if (editor == nullptr) {
+            std::fprintf(stderr, "the plugin made no editor%s", juce::newLine.getDefault());
+            return 1;
+        }
+        if (pump) juce::MessageManager::getInstance()->runDispatchLoopUntil(200);
+        const auto image = editor->createComponentSnapshot(editor->getLocalBounds());
+        std::printf("editor %d x %d, painted %d x %d%s", editor->getWidth(), editor->getHeight(), image.getWidth(),
+                    image.getHeight(), juce::newLine.getDefault());
+        editor = nullptr;
     }
     plugin->releaseResources();
     plugin = nullptr;

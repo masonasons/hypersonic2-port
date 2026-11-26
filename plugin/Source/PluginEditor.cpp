@@ -17,13 +17,9 @@
 
 namespace hs2port {
 
-// A font of `height` in both JUCE 9 (FontOptions) and JUCE 7 (the Windows 7 build).
+// A font of `height`.
 static juce::Font uiFont(float height, int style = juce::Font::plain) {
-#if JUCE_MAJOR_VERSION >= 8
     return juce::Font(juce::FontOptions(height, style));
-#else
-    return juce::Font(height, style);
-#endif
 }
 
 namespace {
@@ -2133,7 +2129,6 @@ void HS2Editor::confirmInstallPresets(bool upgrade) {
            "To stop generation, choose Cancel preset installation in Preferences.";
     const auto title = upgrade ? "Update Komplete Kontrol presets?" : "Install presets";
     juce::Component::SafePointer<HS2Editor> safe(this);
-#if JUCE_MAJOR_VERSION >= 8
     const auto options = juce::MessageBoxOptions()
                              .withIconType(juce::MessageBoxIconType::QuestionIcon)
                              .withTitle(title)
@@ -2144,18 +2139,6 @@ void HS2Editor::confirmInstallPresets(bool upgrade) {
                              .withAssociatedComponent(this);
     constexpr int install = 1;
     juce::NativeMessageBox::showForOptionsAsync(options, [safe, destinations](int result) {
-#else  // JUCE 7: a native OK / Cancel box; OK is button index 0
-    msg << "\n\nOK installs them.";
-    const auto options = juce::MessageBoxOptions()
-                             .withIconType(juce::MessageBoxIconType::QuestionIcon)
-                             .withTitle(title)
-                             .withMessage(msg)
-                             .withButton("OK")
-                             .withButton(upgrade ? "Later" : "Cancel")
-                             .withAssociatedComponent(this);
-    constexpr int install = 0;
-    juce::NativeMessageBox::showAsync(options, [safe, destinations](int result) {
-#endif
         if (safe == nullptr || result != install) return;
         safe->proc_.installPresets(destinations);
         safe->showView(View::instrument);

@@ -13,7 +13,7 @@ public class W { [DllImport("user32.dll")] public static extern bool SetForegrou
  public static void Combo(byte mod, byte vk, bool ext) { Key(mod, true, false); Key(vk, true, ext); Key(vk, false, ext); Key(mod, false, false); }
  public static void Combo2(byte m1, byte m2, byte vk, bool ext) { Key(m1, true, false); Key(m2, true, false); Key(vk, true, ext); Key(vk, false, ext); Key(m2, false, false); Key(m1, false, false); } }
 "@
-$build = if ($env:HS2_BUILD) { $env:HS2_BUILD } else { 'build_plugin' }  # build_win7: the JUCE 7 build
+$build = if ($env:HS2_BUILD) { $env:HS2_BUILD } else { 'build_plugin' }  # build_dist_win: the release build
 $exe = "C:\stuff\Hypersonic 2\$build\plugin\HS2Port_artefacts\Release\Standalone\HS2 Port.exe"
 $p = Start-Process -FilePath $exe -PassThru
 Start-Sleep -Seconds 7

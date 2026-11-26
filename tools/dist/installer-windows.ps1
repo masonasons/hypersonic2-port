@@ -1,8 +1,7 @@
-# Builds the Windows installer, dist\HS2-Port-<version>-Windows-Setup.exe: one setup for Windows 7 to 11 that installs
-# the build suiting the computer (tools\dist\installer-windows.iss). It packages the stage folders of both Windows
-# builds, so run these first (or let CI download their zips):
+# Builds the Windows installer, dist\HS2-Port-<version>-Windows-Setup.exe, for Windows 7 SP1 to 11
+# (tools\dist\installer-windows.iss). It packages the stage folder of the Windows build, so run that first (or let CI
+# download its zip):
 #   powershell -ExecutionPolicy Bypass -File tools\dist\dist-windows.ps1
-#   powershell -ExecutionPolicy Bypass -File tools\dist\dist-windows.ps1 -Windows7
 #   powershell -ExecutionPolicy Bypass -File tools\dist\installer-windows.ps1 [-Iscc C:\path\to\ISCC.exe]
 #
 # Needs Inno Setup 6 (6.3 or later): ISCC.exe is looked for on the PATH and in the usual install folders.
@@ -13,14 +12,9 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path "$PSScriptRoot\..\..").Path
 $version = (Select-String -Path "$root\plugin\CMakeLists.txt" -Pattern '^\s*VERSION\s+([0-9.]+)' |
             Select-Object -First 1).Matches[0].Groups[1].Value
-$modern = "$root\dist\HS2-Port-$version-Windows"
-$legacy = "$root\dist\HS2-Port-$version-Windows7"
-foreach ($dir in $modern, $legacy) {
-    foreach ($item in 'HS2 Port.exe', 'HS2 Port.vst3') {
-        if (-not (Test-Path "$dir\$item")) {
-            throw "$dir\$item is missing: run tools\dist\dist-windows.ps1 and tools\dist\dist-windows.ps1 -Windows7 first"
-        }
-    }
+$stage = "$root\dist\HS2-Port-$version-Windows"
+foreach ($item in 'HS2 Port.exe', 'HS2 Port.vst3') {
+    if (-not (Test-Path "$stage\$item")) { throw "$stage\$item is missing: run tools\dist\dist-windows.ps1 first" }
 }
 
 if (-not $Iscc) {
@@ -33,8 +27,7 @@ if (-not $Iscc) {
 if (-not $Iscc -or -not (Test-Path $Iscc)) { throw "Inno Setup 6 (ISCC.exe) not found: install it or pass -Iscc" }
 
 Write-Host "== HS2 Port $version installer for Windows ($Iscc)"
-& $Iscc /Qp "/DAppVersion=$version" "/DModernDir=$modern" "/DLegacyDir=$legacy" "/DOutputDir=$root\dist" `
-    "$PSScriptRoot\installer-windows.iss"
+& $Iscc /Qp "/DAppVersion=$version" "/DStageDir=$stage" "/DOutputDir=$root\dist" "$PSScriptRoot\installer-windows.iss"
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed (exit code $LASTEXITCODE)" }
 $setup = "$root\dist\HS2-Port-$version-Windows-Setup.exe"
 

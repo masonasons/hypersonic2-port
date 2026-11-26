@@ -19,7 +19,7 @@ import tempfile
 import numpy as np
 
 S = tempfile.mkdtemp(prefix='hs2plugtest_')
-# HS2_BUILD: the plugin build folder to test (default build_plugin; build_win7 is the JUCE 7 / Windows 7 build)
+# HS2_BUILD: the plugin build folder to test (default build_plugin; build_dist_win is the release build)
 BUILD = os.path.join(r'C:\stuff\Hypersonic 2', os.environ.get('HS2_BUILD', 'build_plugin'))
 HOST = os.path.join(BUILD, 'plugin', 'hs2plughost_artefacts', 'Release', 'hs2plughost.exe')
 VST = os.path.join(BUILD, 'plugin', 'HS2Port_artefacts', 'Release', 'VST3', 'HS2 Port.vst3')
