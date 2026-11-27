@@ -56,6 +56,8 @@ protected:
 
 // nullptr for type 128 (no effect: group bus) and for types not ported yet.
 std::unique_ptr<Effect> createEffect(int type);
-const char* effectName(int type);
+const char* effectName(int type);  // "(none)" for 128, "?" for a number that is no effect type
+// True for an effect type the port has (0..127, the ones createEffect makes); not for 128 (no effect).
+bool effectTypeExists(int type);
 
 }  // namespace hs2

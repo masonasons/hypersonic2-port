@@ -82,6 +82,18 @@ PatchLibrary PatchLibrary::scan(const std::filesystem::path& root) {
             if (number >= 0 && number <= 128) (*out)[size_t(number)] = name;
         }
     }
+    // The waves of each wavetable bank by name, in entry order (the element's Wave index; Analog's Wavetable uses
+    // bank 0, "000 Core Wavetables").
+    for (int number = 0; number <= 128; ++number) {
+        const auto& name = lib.wavetableNames[size_t(number)];
+        if (name.empty()) continue;
+        try {
+            auto mb = hs2::MilanBank::open(root / "Wavetables" / name);
+            if (mb->kind != 3) continue;
+            for (const auto& entry : mb->entries) lib.wavetableWaves[size_t(number)].push_back(trim(entry.name));
+        } catch (const std::exception&) {
+        }
+    }
 
     // Effect presets (Effects/<category>/<name>.fxp), for the global effect slots.
     std::error_code fec;

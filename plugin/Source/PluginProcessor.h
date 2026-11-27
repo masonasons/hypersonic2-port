@@ -132,6 +132,8 @@ struct PartSnapshot {
     float get(int elem, int idx) const {
         if (idx < 0) return 0.f;
         if (elem == kSendFxElem) {
+            if (idx >= kSendTypeIdx && idx < kSendTypeIdx + kSendFxSlots)  // the effect type (setter 0x13)
+                return (float(sendTypes[size_t(idx - kSendTypeIdx)]) + 0.5f) / 128.9f;
             const int k = idx - kSendFxFirstJ;
             return k >= 0 && k < int(sends.size()) ? sends[size_t(k)] : 0.f;
         }
@@ -290,6 +292,9 @@ public:
     std::vector<std::pair<float, juce::String>> choices(int i) const;
     // The effect in global send effect slot k (0..3), e.g. "Hall Reverb"; empty when the slot has none.
     juce::String globalFxName(int k) const;
+    int globalFxTypeOf(int k) const {  // effects.h numbering, 128 = none
+        return k >= 0 && k < kGfxSlots ? gfxType_[size_t(k)].load() : 128;
+    }
     // The value exposed parameter i had right after its patch, combi or setup loaded (what Delete on a slider returns
     // to); the parameter's default before any load.
     float loadedValue(int i) const {
@@ -316,7 +321,7 @@ private:
     };
     // A load prepared by the loader thread, applied by the audio thread between blocks.
     struct Command {
-        enum Kind { loadPatch, loadCombi, clearPart, memoryMode, globalFx, edit } kind = loadPatch;
+        enum Kind { loadPatch, loadCombi, clearPart, memoryMode, globalFx, globalFxType, edit } kind = loadPatch;
         int part = 0, bank = -1;
         int elem = 0, idx = 0;  // edit: the address (value = the value)
         float value = 0;

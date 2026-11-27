@@ -819,8 +819,13 @@ juce::String HS2Processor::gfxChoice(int k) const {
 }
 
 namespace {
-// "Delay/Mono Delay.fxp" -> "Mono Delay" (the original names the slot after the file, at most 31 characters)
+// "Delay/Mono Delay.fxp" -> "Mono Delay" (the original names the slot after the file, at most 31 characters);
+// "type:10" (an effect type chosen without a preset) -> "Delay".
 juce::String effectLabel(const juce::String& path) {
+    if (path.startsWith("type:")) {
+        const int t = path.substring(5).getIntValue();
+        return hs2::effectTypeExists(t) ? juce::String(hs2::effectName(t)) : juce::String();
+    }
     return path.fromLastOccurrenceOf("/", false, false).upToLastOccurrenceOf(".", false, false).substring(0, 31);
 }
 int quantType(float v) { return int(v * 128.9f); }
@@ -1009,6 +1014,14 @@ bool HS2Processor::prepareCommand(const Request& req, hs2::Content& content, Com
                 if (req.name == "none") {
                     cmd.empty = true;
                     cmd.value = 1.f;
+                    return true;
+                }
+                if (req.name.startsWith("type:")) {  // an effect type, the slot's knobs as they are
+                    const int type = req.name.substring(5).getIntValue();
+                    if (!hs2::effectTypeExists(type))
+                        throw std::runtime_error("there is no effect type " + std::to_string(type));
+                    cmd.kind = Command::globalFxType;
+                    cmd.value = (float(type) + 0.5f) / 128.9f;
                     return true;
                 }
                 EffectPreset fx;
@@ -1260,12 +1273,15 @@ void HS2Processor::applyCommand(hs2::Engine& e, const Command& c) {
         case Command::clearPart: e.clearPart(c.part); break;
         case Command::memoryMode: e.setMemoryMode(c.value); break;
         case Command::globalFx: e.loadGlobalFx(c.part, c.value, c.empty ? nullptr : c.knobs.data()); break;
+        case Command::globalFxType: e.setGlobalFxType(c.part, c.value); break;
         case Command::edit: applyEdit(e, c.part, c.elem, c.idx, c.value); break;
     }
 }
 
 void HS2Processor::applyEdit(hs2::Engine& e, int part, int elem, int idx, float v) {
-    if (elem == kSendFxElem) e.setParameter(part * hs2::Engine::kParamsPerPart + idx, v);  // a patch send effect
+    if (elem == kSendFxElem && idx >= kSendTypeIdx && idx < kSendTypeIdx + kSendFxSlots)
+        e.setPartSetter(part, 0x41 + idx - kSendTypeIdx, 0x13, v);  // a patch send effect's type (not a part parameter)
+    else if (elem == kSendFxElem) e.setParameter(part * hs2::Engine::kParamsPerPart + idx, v);  // a patch send effect
     else e.setPartSetter(part, elem, idx, v);
 }
 
@@ -1745,8 +1761,9 @@ void HS2Processor::setStateInformation(const void* data, int sizeInBytes) {
                 for (auto* e : setup->getChildWithTagNameIterator("EDIT")) {
                     const int p = e->getIntAttribute("part", 0) - 1, elem = e->getIntAttribute("elem", -2),
                               idx = e->getIntAttribute("idx", -1);
-                    const bool sendFx = elem == kSendFxElem && idx >= kSendFxFirstJ &&
-                                        idx < kSendFxFirstJ + kSendFxSlots * kSendFxParams;
+                    const bool sendFx = elem == kSendFxElem &&
+                                        ((idx >= kSendFxFirstJ && idx < kSendFxFirstJ + kSendFxSlots * kSendFxParams) ||
+                                         (idx >= kSendTypeIdx && idx < kSendTypeIdx + kSendFxSlots));
                     if (p < 0 || p >= kNumParts || !(sendFx || (elem >= 0 && elem <= 64 && idx >= 0 && idx < 256)))
                         continue;
                     const float v = juce::jlimit(0.f, 1.f, float(e->getDoubleAttribute("value")));

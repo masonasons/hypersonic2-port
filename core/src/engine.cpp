@@ -370,6 +370,14 @@ void Engine::loadGlobalFx(int k, float type, const float* knobs) {
     for (int j = 0; j < 0x18; ++j) setParameter(p0 + j, global_->getParam(e, sendFxParamIndex(j)));
 }
 
+void Engine::setGlobalFxType(int k, float type) {
+    if (k < 0 || k >= 4 || !global_) return;
+    const int e = 0x41 + k;
+    global_->setParam(e, 0x13, type);
+    const int p0 = kGlobalFxBase + k * 0x18;
+    for (int j = 0; j < 0x18; ++j) setParameter(p0 + j, global_->getParam(e, sendFxParamIndex(j)));
+}
+
 // FUN_1008a950
 void Engine::setParameter(int index, float value) {
     if (index < 0 || index >= kNumParams) return;

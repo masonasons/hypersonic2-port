@@ -69,6 +69,8 @@ public:
     // element editor names a sample or wavetable element's bank by these).
     std::vector<std::string> sampleBankNames = std::vector<std::string>(129);
     std::vector<std::string> wavetableNames = std::vector<std::string>(129);
+    // The waves of wavetable bank n by name, in entry order (empty when the bank has none or could not be read).
+    std::vector<std::vector<std::string>> wavetableWaves = std::vector<std::vector<std::string>>(129);
     std::vector<std::string> errors;
     // (bank, index) -> the .stss capture file, for the copy-protected patches that have one (PatchRef::captured).
     std::map<std::pair<int, int>, std::filesystem::path> captured;

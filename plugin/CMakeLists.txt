@@ -145,6 +145,13 @@ target_compile_definitions(hs2_preset_transaction PRIVATE JUCE_WEB_BROWSER=0 JUC
 target_link_libraries(hs2_preset_transaction PRIVATE hs2core juce::juce_audio_processors juce::juce_audio_formats
     juce::juce_recommended_config_flags)
 
+# The patch editor's effect types, effect presets and wave names against real content (tests/patch_edit_effects.cpp).
+juce_add_console_app(hs2_patch_edit_effects VERSION 0.1.0 PRODUCT_NAME "hs2_patch_edit_effects")
+target_sources(hs2_patch_edit_effects PRIVATE tests/patch_edit_effects.cpp Source/PatchEdit.cpp Source/PatchLibrary.cpp)
+target_compile_definitions(hs2_patch_edit_effects PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_FORCE_USE_LEGACY_PARAM_IDS=1)
+target_link_libraries(hs2_patch_edit_effects PRIVATE hs2core juce::juce_audio_processors
+    juce::juce_recommended_config_flags)
+
 juce_add_console_app(hs2_keyboard_controls VERSION 0.1.0 PRODUCT_NAME "HS2 Keyboard Controls Test")
 target_sources(hs2_keyboard_controls PRIVATE tests/keyboard_controls.cpp)
 target_compile_definitions(hs2_keyboard_controls PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)

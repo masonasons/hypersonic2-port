@@ -705,8 +705,24 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
         else if (id >= 3 && id - 3 < int(effectPaths_.size())) proc_.requestGlobalFx(slot, effectPaths_[size_t(id - 3)]);
     };
     setupLabel(gfxEffectLabel_, "Effect", gfxEffect_);
+    gfxPage_.addAndMakeVisible(gfxTypeBox_);
+    gfxTypeBox_.setTitle("Effect type");
+    setControlHelp(gfxTypeBox_, "The effect type in this slot, without a preset: the slot's knobs keep their values. "
+                                "Up and Down arrows change it at once; No effect empties the slot. Saved with the project.");
+    gfxTypeBox_.setExplicitFocusOrder(3);
+    gfxTypeBox_.addItem("No effect", 1000);
+    for (int t = 0; t < 128; ++t)
+        if (hs2::effectTypeExists(t)) gfxTypeBox_.addItem(hs2::effectName(t), t + 1);
+    gfxTypeBox_.onChange = [this] {
+        const int id = gfxTypeBox_.getSelectedId();
+        const int slot = juce::jlimit(0, kGfxSlots - 1, proc_.selectedEffectSlot.load());
+        if (id == 1000) proc_.requestGlobalFx(slot, "none");
+        else if (id >= 1 && id <= 128) proc_.requestGlobalFx(slot, "type:" + juce::String(id - 1));
+        seenTypeBox_ = slot * 256 + (id == 1000 ? 128 : id - 1);  // shown already; the load follows
+    };
+    setupLabel(gfxTypeLabel_, "Effect type", gfxTypeBox_);
     {
-        int o = 3;
+        int o = 4;
         // Mute, Level, Pan, Aux Output, the effect's knobs (12: no effect has more), then Send 1 (effects 2..4)
         for (int j : {0, 18, 19, 17, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}) {
             auto row = std::make_unique<ParamRow>(proc_, gfxDef(j).name, juce::String(gfxDef(j).name) + ".", o++);
@@ -785,7 +801,12 @@ HS2Editor::HS2Editor(HS2Processor& p) : AudioProcessorEditor(&p), proc_(p) {
     ctx_.elemType = [this](int elem) {
         return elem >= 1 && elem <= int(snap_.types.size()) ? snap_.types[size_t(elem - 1)] : -1;
     };
-    ctx_.sendType = [this](int slot) { return slot >= 0 && slot < kSendFxSlots ? snap_.sendTypes[size_t(slot)] : 128; };
+    ctx_.sendType = [this](int slot) {  // an edit not yet in the snapshot counts
+        if (slot < 0 || slot >= kSendFxSlots) return 128;
+        if (const auto it = editsSeen_.find({kSendFxElem, kSendTypeIdx + slot}); it != editsSeen_.end())
+            return int(it->second.value * 128.9f);
+        return snap_.sendTypes[size_t(slot)];
+    };
 
     // ---- Global settings
     addChildComponent(globalPage_);
@@ -1161,7 +1182,8 @@ void HS2Editor::resized() {
         for (auto& r2 : gfxRows_)
             if (r2->isVisible()) rows.push_back(r2.get());
         if (gfxSend1Row_->isVisible()) rows.push_back(gfxSend1Row_.get());
-        layoutRows(gfxPage_, rows, {{&gfxSlot_, &gfxSlotLabel_}, {&gfxEffect_, &gfxEffectLabel_}});
+        layoutRows(gfxPage_, rows,
+                   {{&gfxSlot_, &gfxSlotLabel_}, {&gfxEffect_, &gfxEffectLabel_}, {&gfxTypeBox_, &gfxTypeLabel_}});
         auto shown = [](const std::vector<std::unique_ptr<ValueRow>>& rs) {
             std::vector<juce::Component*> v;
             for (auto& r2 : rs)
@@ -1341,8 +1363,8 @@ void HS2Editor::fillEffectBox() {
             gfxEffect_.addItem(folder.isNotEmpty() ? folder + ": " + name : name, id);
             if (path == choice) selected = id;
         }
-    if (selected == 0) {  // a preset chosen before that is no longer in the folder
-        gfxEffect_.addItem(text + ", as loaded", 1);
+    if (selected == 0) {  // an effect type chosen without a preset, or a preset no longer in the folder
+        gfxEffect_.addItem(text + (choice.startsWith("type:") ? ", no preset" : ", as loaded"), 1);
         gfxEffect_.setItemEnabled(1, false);
         selected = 1;
     }
@@ -1424,6 +1446,7 @@ void HS2Editor::bindPages() {
     for (int t = 0; t < 2; ++t) seenTuneBank_[size_t(t)] = -1;
     gfxKnobSeen_.assign(gfxRows_.size(), reinterpret_cast<const void*>(1));  // none yet: every knob row rebinds
     seenEffectSig_.clear();
+    seenTypeBox_ = -2;
     seenFxNames_.clear();
     refreshPages();
     for (auto* sec : {&settingsPage_, &arpPage_, &tuningPage_, &gfxPage_, &patchPage_, &elemPage_, &sendsPage_}) sec->repaint();
@@ -1545,9 +1568,25 @@ void HS2Editor::bindEditRows(std::vector<std::unique_ptr<ValueRow>>& rows, int e
         b.description = name + ".";
         b.readOnly = ro;
         b.choices = std::move(choices);
-        b.get = [this, elem, i] { return ctx_.value(elem, i); };
+        b.get = [this, elem, i] { return editValue(ctx_, elem, i); };
         b.text = [this, elem, i](float v) { return editText(ctx_, elem, i, v); };
-        if (!ro) {
+        if (!ro && editIsPreset(elem, i)) {  // an effect preset: its type and knobs, as edits of their own
+            auto noteEdit = [this, elem](int idx, float v) {
+                proc_.setEdit(part(), elem, idx, v);
+                auto it = editsSeen_.find({elem, idx});
+                if (it == editsSeen_.end()) editsSeen_[{elem, idx}] = {v, snap_.get(elem, idx)};
+                else it->second.value = v;
+            };
+            b.set = [this, elem, i, noteEdit](float v) {
+                for (const auto& [idx, value] : presetEdits(ctx_, elem, i, v)) noteEdit(idx, value);
+            };
+            b.reset = [this, elem, i] {
+                for (int idx : presetTargets(elem, i)) {
+                    proc_.resetEdit(part(), elem, idx);
+                    if (auto it = editsSeen_.find({elem, idx}); it != editsSeen_.end()) it->second.value = it->second.original;
+                }
+            };
+        } else if (!ro) {
             b.set = [this, elem, i](float v) {
                 proc_.setEdit(part(), elem, i, v);
                 auto it = editsSeen_.find({elem, i});
@@ -1583,6 +1622,14 @@ void HS2Editor::refreshPages() {
         gfxPage_.repaint();
     }
     fillEffectBox();
+    {  // the Effect type box follows the slot's effect (a preset, a combi or a type chosen here)
+        const int slot = juce::jlimit(0, kGfxSlots - 1, proc_.selectedEffectSlot.load());
+        const int type = proc_.globalFxTypeOf(slot);
+        if (slot * 256 + type != seenTypeBox_) {
+            seenTypeBox_ = slot * 256 + type;
+            gfxTypeBox_.setSelectedId(type >= 128 ? 1000 : type + 1, juce::dontSendNotification);
+        }
+    }
     // the effect knob rows: the effect's own knob names, choices and texts; unused knobs hidden. A knob rebinds when
     // the effect in the slot changes (a combi) or its table does (Delay follows Sync).
     {

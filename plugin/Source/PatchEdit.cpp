@@ -179,6 +179,68 @@ const fxtext::Knob* insertKnob(const EditContext& c, int elem, int knob) {
 
 int elemTypeOf(const EditContext& c, int elem) { return c.elemType ? c.elemType(elem) : -1; }
 
+// ---- effect types and effect presets (an insert element's Effect Type 0x13, a send effect's kSendTypeIdx + slot)
+
+bool isSendType(int elem, int idx) {
+    return elem == kSendFxElem && idx >= kSendTypeIdx && idx < kSendTypeIdx + kSendFxSlots;
+}
+
+juce::String typeText(float v) {
+    const int t = quant(v, 128.9f);
+    return hs2::effectTypeExists(t) ? juce::String(hs2::effectName(t)) : juce::String("No effect");
+}
+
+// No effect (type 128), then every effect type the port has, by its number (effects.h).
+std::vector<std::pair<float, juce::String>> typeChoices() {
+    std::vector<std::pair<float, juce::String>> out{{idxValue(128), "No effect"}};
+    for (int t = 0; t < 128; ++t)
+        if (hs2::effectTypeExists(t)) out.push_back({idxValue(t), hs2::effectName(t)});
+    return out;
+}
+
+// A preset row's value: preset k of PatchLibrary::effects, or kCustom (the knobs match no preset).
+constexpr float kCustom = 1.f;
+float presetValue(int k) { return (float(k) + 0.5f) / 4096.f; }
+int presetIndex(const EditContext& c, float v) {
+    const int n = c.library != nullptr ? int(c.library->effects.size()) : 0;
+    const int k = v >= 0.999f ? -1 : int(v * 4096.f);
+    return k >= 0 && k < n ? k : -1;
+}
+
+juce::String presetLabel(const EffectPreset& p) {  // "Delay: Mono Delay"
+    const juce::String path(p.rel.generic_wstring().c_str());
+    const auto folder = path.containsChar('/') ? path.upToFirstOccurrenceOf("/", false, false) : juce::String();
+    const auto name = path.fromLastOccurrenceOf("/", false, false).upToLastOccurrenceOf(".", false, false);
+    return folder.isNotEmpty() ? folder + ": " + name : name;
+}
+
+// Where a preset row's type and knobs are: (type index, first knob index, knob stride 1).
+struct PresetSlot { int type, knob; };
+PresetSlot presetSlot(int elem, int idx) {
+    if (elem == kSendFxElem) {
+        const int s = idx - kPresetIdx;
+        return {kSendTypeIdx + s, kSendFxFirstJ + s * kSendFxParams + 1};  // send knob j' 1..12
+    }
+    return {0x13, 0x19};
+}
+
+// The preset whose type and twelve knobs the effect has now, or -1.
+int currentPreset(const EditContext& c, int elem, int idx) {
+    if (c.library == nullptr) return -1;
+    const auto at = presetSlot(elem, idx);
+    const int type = quant(c.value(elem, at.type), 128.9f);
+    std::array<float, 12> knobs{};
+    for (int i = 0; i < 12; ++i) knobs[size_t(i)] = c.value(elem, at.knob + i);
+    const auto& fx = c.library->effects;
+    for (size_t k = 0; k < fx.size(); ++k) {
+        if (quant(fx[k].type, 128.9f) != type) continue;
+        bool same = true;
+        for (int i = 0; same && i < 12; ++i) same = std::abs(fx[k].knobs[size_t(i)] - knobs[size_t(i)]) < 1e-4f;
+        if (same) return int(k);
+    }
+    return -1;
+}
+
 std::vector<int> range(int a, int b) {
     std::vector<int> v;
     for (int i = a; i <= b; ++i) v.push_back(i);
@@ -306,6 +368,30 @@ juce::String bankName(const EditContext& c, int type, int n) {
     return "bank " + juce::String(n) + " (none)";
 }
 
+// A wave of wavetable bank `bank`: "12 Organ 3", or "wave 12" when the bank's names are not known.
+const std::vector<std::string>* waveNames(const EditContext& c, int bank) {
+    if (c.library == nullptr || bank < 0 || bank > 128) return nullptr;
+    const auto& w = c.library->wavetableWaves[size_t(bank)];
+    return w.empty() ? nullptr : &w;
+}
+
+juce::String waveText(const EditContext& c, int bank, int w, const char* fallback) {
+    if (const auto* names = waveNames(c, bank); names != nullptr && w >= 0 && w < int(names->size())) {
+        const auto n = fromLatin1((*names)[size_t(w)]);
+        return juce::String(w + 1) + " " + (n.isEmpty() ? juce::String("(unnamed)") : n);
+    }
+    return juce::String(fallback) + " " + juce::String(w + 1);
+}
+
+// The waves of the bank by name; empty (a slider) when the names are not known.
+std::vector<std::pair<float, juce::String>> waveChoices(const EditContext& c, int bank, const char* fallback) {
+    std::vector<std::pair<float, juce::String>> out;
+    if (const auto* names = waveNames(c, bank))
+        for (int w = 0; w < std::min(int(names->size()), 129); ++w)
+            out.push_back({idxValue(w), waveText(c, bank, w, fallback)});
+    return out;
+}
+
 int sampleCount(const EditContext& c, int elem) {
     if (c.content == nullptr) return 0;
     hs2::SampleBank* sb = c.content->sampleBank(quant(c.value(elem, 0x12), 128.9f));
@@ -336,7 +422,7 @@ std::vector<EditGroup> elementGroups(const EditContext& c, int elem) {
     std::vector<EditGroup> g;
     const std::vector<int> quick = {0x91, 0x04, 0x06, 0x07, 0x08, 0x09, 0x92, 0x05, 0x0a, 0x0b, 0x0c, 0x0d};
     if (t == 0) {
-        std::vector<int> fx = {0x00, 0x13};
+        std::vector<int> fx = {0x00, 0x13, kPresetIdx};
         for (int i = 0x19; i <= 0x24; ++i) fx.push_back(i);
         for (int i = 0x14; i <= 0x18; ++i) fx.push_back(i);
         g.push_back({"Effect", fx});
@@ -389,7 +475,9 @@ EditGroup sendFxGroup(const EditContext& c, int slot) {
     EditGroup g;
     g.title = "Send effect " + juce::String(slot + 1) + ": " + (fx != nullptr ? juce::String(fx) : juce::String("none"));
     const int base = kSendFxFirstJ + slot * kSendFxParams;
-    // Mute, Level, Pan, Aux Output, the effect's knobs, then the sends (as the global effects page)
+    // The effect type and preset, then Mute, Level, Pan, Aux Output, the effect's knobs, then the sends (as the global
+    // effects page)
+    g.idx = {kSendTypeIdx + slot, kPresetIdx + slot};
     std::vector<int> order = {0, 18, 19, 17};
     for (int k = 1; k <= 16; ++k) order.push_back(k);
     for (int k = 20; k <= 23; ++k) order.push_back(k);
@@ -401,16 +489,55 @@ EditGroup sendFxGroup(const EditContext& c, int slot) {
 // ---- names, texts, choices, steps
 
 juce::String editName(const EditContext& c, int elem, int idx) {
+    if (editIsPreset(elem, idx)) return elem == kSendFxElem || elemTypeOf(c, elem) == 0 ? "Effect Preset" : juce::String();
+    if (isSendType(elem, idx)) return "Effect Type";
     if (elem == kSendFxElem) return isSend(elem, idx) ? sendName(c, idx) : juce::String();
     if (elem == 0) return patchName(idx);
     return elemName(c, elem, idx);
 }
 
 bool editReadOnly(const EditContext& c, int elem, int idx) {
-    return elem > 0 && (idx == 0x01 || (idx == 0x13 && elemTypeOf(c, elem) == 0));
+    juce::ignoreUnused(c);
+    return elem > 0 && idx == 0x01;
+}
+
+bool editIsPreset(int elem, int idx) {
+    if (elem == kSendFxElem) return idx >= kPresetIdx && idx < kPresetIdx + kSendFxSlots;
+    return elem > 0 && idx == kPresetIdx;
+}
+
+float editValue(const EditContext& c, int elem, int idx) {
+    if (!editIsPreset(elem, idx)) return c.value(elem, idx);
+    const int k = currentPreset(c, elem, idx);
+    return k >= 0 ? presetValue(k) : kCustom;
+}
+
+std::vector<std::pair<int, float>> presetEdits(const EditContext& c, int elem, int idx, float v) {
+    std::vector<std::pair<int, float>> out;
+    const int k = editIsPreset(elem, idx) ? presetIndex(c, v) : -1;
+    if (k < 0) return out;
+    const auto& p = c.library->effects[size_t(k)];
+    const auto at = presetSlot(elem, idx);
+    out.push_back({at.type, p.type});
+    for (int i = 0; i < 12; ++i) out.push_back({at.knob + i, p.knobs[size_t(i)]});
+    return out;
+}
+
+std::vector<int> presetTargets(int elem, int idx) {
+    std::vector<int> out;
+    if (!editIsPreset(elem, idx)) return out;
+    const auto at = presetSlot(elem, idx);
+    out.push_back(at.type);
+    for (int i = 0; i < 12; ++i) out.push_back(at.knob + i);
+    return out;
 }
 
 juce::String editText(const EditContext& c, int elem, int idx, float v) {
+    if (editIsPreset(elem, idx)) {
+        const int k = presetIndex(c, v);
+        return k >= 0 ? presetLabel(c.library->effects[size_t(k)]) : juce::String("Custom (no preset)");
+    }
+    if (isSendType(elem, idx)) return typeText(v);
     if (elem == kSendFxElem) {
         if (!isSend(elem, idx)) return {};
         const int s = (idx - kSendFxFirstJ) / kSendFxParams, jj = (idx - kSendFxFirstJ) % kSendFxParams;
@@ -427,19 +554,16 @@ juce::String editText(const EditContext& c, int elem, int idx, float v) {
         return tp != nullptr ? tbText(*tp, v) : percent(v);
     }
     const int t = elemTypeOf(c, elem);
-    if (t == 5 && idx == 0x22) return "wavetable " + juce::String(quant(v, 128.9f) + 1);
+    if (t == 5 && idx == 0x22) return waveText(c, 0, quant(v, 128.9f), "wavetable");  // Analog: bank 0's waves
     if (t == 0 && idx >= 0x19 && idx <= 0x24) {
         const auto* k = insertKnob(c, elem, idx - 0x19);
         return k != nullptr ? fxText(*k, v) : percent(v);
     }
-    if (t == 0 && idx == 0x13) {
-        const char* n = hs2::effectName(quant(v, 128.9f));
-        return n != nullptr ? juce::String(n) : juce::String("none");
-    }
+    if (t == 0 && idx == 0x13) return typeText(v);
     if (idx == 0x01) return elementTypeName(quant(v, 15.9f));
     if ((t == 2 || t == 3) && idx == 0x12) return bankName(c, t, quant(v, 128.9f));
     if (t == 2 && idx == 0x13) return sampleText(c, elem, quant(v, 128.9f));
-    if (t == 3 && idx == 0x13) return "wave " + juce::String(quant(v, 128.9f) + 1);
+    if (t == 3 && idx == 0x13) return waveText(c, quant(c.value(elem, 0x12), 128.9f), quant(v, 128.9f), "wave");
     const tb::Param* tp = tables().elem(t, idx);
     return tp != nullptr ? tbText(*tp, v) : percent(v);
 }
@@ -451,6 +575,14 @@ std::vector<std::pair<float, juce::String>> editChoices(const EditContext& c, in
         out.push_back({v, editText(c, elem, idx, v)});
         return out;
     }
+    if (editIsPreset(elem, idx)) {  // Custom, then the content's effect presets by folder
+        out.push_back({kCustom, "Custom (no preset)"});
+        if (c.library != nullptr)
+            for (size_t k = 0; k < c.library->effects.size(); ++k)
+                out.push_back({presetValue(int(k)), presetLabel(c.library->effects[k])});
+        return out;
+    }
+    if (isSendType(elem, idx) || (elem > 0 && idx == 0x13 && elemTypeOf(c, elem) == 0)) return typeChoices();
     if (elem == kSendFxElem) {
         if (!isSend(elem, idx)) return out;
         const int s = (idx - kSendFxFirstJ) / kSendFxParams, jj = (idx - kSendFxFirstJ) % kSendFxParams;
@@ -486,14 +618,27 @@ std::vector<std::pair<float, juce::String>> editChoices(const EditContext& c, in
         for (int w = 0; w < count; ++w) out.push_back({idxValue(w), sampleText(c, elem, w)});
         return out;
     }
-    if ((t == 3 && idx == 0x13) || (t == 5 && idx == 0x22)) return out;  // wave / wavetable numbers: slider
+    // the waves by name (a slider when the bank's names are not known)
+    if (t == 3 && idx == 0x13) return waveChoices(c, quant(c.value(elem, 0x12), 128.9f), "wave");
+    if (t == 5 && idx == 0x22) return waveChoices(c, 0, "wavetable");
     if (const tb::Param* tp = tables().elem(t, idx); tp != nullptr && tp->numSegs <= 64) out = tbChoices(*tp);
     return out;
 }
 
 float editStep(const EditContext& c, int elem, int idx, float v, int delta) {
-    if (delta == 0 || editReadOnly(c, elem, idx)) return v;
+    if (delta == 0 || editReadOnly(c, elem, idx) || editIsPreset(elem, idx)) return v;
     auto res = [&](int r) { return juce::jlimit(0.f, 1.f, float(juce::roundToInt(v * float(r)) + delta) / float(r)); };
+    // a list of named values (effect types, wavetables): the next entry
+    auto byChoice = [&] {
+        const auto choices = editChoices(c, elem, idx);
+        if (choices.empty()) return v;
+        const auto text = editText(c, elem, idx, v);
+        int pos = 0;
+        for (size_t q = 0; q < choices.size(); ++q)
+            if (choices[q].second == text) pos = int(q);
+        return choices[size_t(juce::jlimit(0, int(choices.size()) - 1, pos + delta))].first;
+    };
+    if (isSendType(elem, idx) || (elem > 0 && idx == 0x13 && elemTypeOf(c, elem) == 0)) return byChoice();
     if (elem == kSendFxElem) {
         if (!isSend(elem, idx)) return v;
         const int s = (idx - kSendFxFirstJ) / kSendFxParams, jj = (idx - kSendFxFirstJ) % kSendFxParams;
@@ -512,7 +657,10 @@ float editStep(const EditContext& c, int elem, int idx, float v, int delta) {
     }
     const int t = elemTypeOf(c, elem);
     if (t < 0) return v;
-    if (t == 5 && idx == 0x22) return idxValue(juce::jlimit(0, 127, quant(v, 128.9f) + delta));
+    if ((t == 5 && idx == 0x22) || (t == 3 && idx == 0x13)) {  // the named waves, else the number
+        if (!editChoices(c, elem, idx).empty()) return byChoice();
+        return idxValue(juce::jlimit(0, 127, quant(v, 128.9f) + delta));
+    }
     if (t == 0 && idx >= 0x19 && idx <= 0x24) {
         const auto* k = insertKnob(c, elem, idx - 0x19);
         return k != nullptr ? stepFx(*k, v, delta) : res(100);

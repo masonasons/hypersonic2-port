@@ -1,5 +1,7 @@
 #include "hs2/effects.h"
 
+#include <cstring>
+
 #include "fx/registry.h"
 
 namespace hs2 {
@@ -62,6 +64,8 @@ std::unique_ptr<Effect> createEffect(int type) {
         default: return nullptr;  // 128 = no effect (group bus)
     }
 }
+
+bool effectTypeExists(int type) { return type >= 0 && type < 128 && std::strcmp(effectName(type), "?") != 0; }
 
 const char* effectName(int type) {
     switch (type) {

@@ -1214,3 +1214,21 @@ parts and the global send FX. Details for users: `plugin/README.md`.
   renders on Windows 11 (peaks 0.088 / 0.104 / 0.121), with the editor made and painted (1080 x 690); the Standalone
   started and was still running after 15 s. Not checked: the windows on a Windows 7 desktop, a screen reader there,
   sample-based patches, ASIO or audio devices, MIDI input.
+
+- **Effect types, effect presets and wave names in the patch editor (2026-11-26; the user's notes from the manual).**
+  The original can change the effect type of every effect: an element's insert, a patch send effect and a global
+  slot. Insert elements: Effect Type (0x13) is editable; PatchPlayer::setParam on an insert's 0x13 now makes a new
+  effect when the type changes (as setSendFxParam's case 0x6b already did), with every knob passed to it. Patch send
+  effects: Effect Type is the editor address (kSendFxElem, kSendTypeIdx + slot), applied as setter 0x13 of element
+  0x41 + slot (it is not a part parameter); saved with the project's edits. Both also get an Effect Preset row (an
+  editor row, not a parameter): choosing a preset makes the type and twelve knob edits; it reads the preset whose type
+  and knobs match, else "Custom (no preset)". Global slots: an Effect type box next to the preset box,
+  Engine::setGlobalFxType (knobs, mute and routes kept), saved as setup GFX "type:N". Choosing by type keeps the knob
+  values (the effect tables have no defaults). hs2::effectTypeExists: the 52 effect types the port has (effectName
+  returns "?" for other numbers). Wave names: PatchLibrary::wavetableWaves (each Wavetables bank's entry names), so a
+  wavetable element's Wave and an Analog element's Wavetable (bank 0, "000 Core Wavetables", 46 waves) are lists by
+  name. In engine mode a patch's send record flagged 2 goes to the global part, so the part's own slot is empty and
+  muted; an own send effect is heard only with FX Mode (patch 0x3e) on, unmuted, and an Aux Out. Checked:
+  hs2_patch_edit_effects (real content: the lists, names, preset edits and matching), and renders through the VST3
+  with project edits: an insert's type change changes the sound and the same type does not; an own send effect's
+  types each render differently, the same type identically, No effect as before; a global slot's type 1 vs 10 differ.

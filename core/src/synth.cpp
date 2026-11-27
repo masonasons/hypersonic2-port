@@ -1038,6 +1038,20 @@ void PatchPlayer::setParam(int elem, int idx, float value) {
         if (el.isEffect) {
             const ParamArray& r = el.raw;
             el.muted = r[0] > 0.5f;  // case 0: +0x41c (an effect ignores its Output Level here)
+            if (idx == 0x13) {  // case 0x6b: a new effect only when the type changes (the patch editor's Effect Type)
+                const int type = quant(x, 128.9f);
+                if (type != el.fxType) {
+                    el.fxType = type;
+                    el.fx = createEffect(type);
+                    if (el.fx) {
+                        el.fx->setRandom(&rng_);
+                        el.fx->setTempo(bpm_, bps_);
+                        el.fx->setPitchSource(&notePitch_);
+                        el.fx->setSampleRate(c_.sr);
+                    }
+                    for (float& a : el.knobApplied) a = -1.f;  // the new effect gets every knob (below)
+                }
+            }
             elementKnobsToFx(ei);
         } else {
             const uint32_t mv = el.p.modVersion;

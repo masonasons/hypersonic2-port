@@ -52,6 +52,9 @@ public:
     // twelve knobs, the Hyperknob routes off, unmuted. knobs == nullptr empties the slot (type 1.0, as the original
     // does when the file can't be read). The slot's VST parameters follow (FUN_10086cf0, as after a combi).
     void loadGlobalFx(int k, float type, const float* knobs);
+    // Not in the original's loader: global send FX slot k's effect type (element param 0x13; 1.0 = none), the slot's
+    // knobs, mute and routes as they are (the patch editor's Effect Type). The slot's VST parameters follow.
+    void setGlobalFxType(int k, float type);
 
     // ---- per host block ----
     void processBlock(float* outLR, int frames, const MidiEvent* events, int numEvents,
